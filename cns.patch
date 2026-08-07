@@ -1,9 +1,9 @@
 diff --git a/adapter/outbound/cns.go b/adapter/outbound/cns.go
 new file mode 100644
-index 0000000..3614f4e
+index 0000000..f53d3fe
 --- /dev/null
 +++ b/adapter/outbound/cns.go
-@@ -0,0 +1,376 @@
+@@ -0,0 +1,419 @@
 +package outbound
 +
 +import (
@@ -22,7 +22,10 @@ index 0000000..3614f4e
 +	"time"
 +
 +	N "github.com/metacubex/mihomo/common/net"
++	"github.com/metacubex/mihomo/component/ca"
 +	C "github.com/metacubex/mihomo/constant"
++
++	"github.com/metacubex/tls"
 +)
 +
 +const (
@@ -32,23 +35,28 @@ index 0000000..3614f4e
 +
 +type Cns struct {
 +	*Base
-+	option   *CnsOption
-+	proxyKey string
-+	udpFlag  string
-+	password []byte
-+	headers  map[string]string
++	option    *CnsOption
++	proxyKey  string
++	udpFlag   string
++	password  []byte
++	headers   map[string]string
++	tlsConfig *tls.Config
 +}
 +
 +type CnsOption struct {
 +	BasicOption
-+	Name     string            `proxy:"name"`
-+	Server   string            `proxy:"server"`
-+	Port     int               `proxy:"port"`
-+	Key      string            `proxy:"key,omitempty"`
-+	Password string            `proxy:"password,omitempty"`
-+	Flag     string            `proxy:"flag,omitempty"`
-+	Headers  map[string]string `proxy:"headers,omitempty"`
-+	UDP      bool              `proxy:"udp,omitempty"`
++	Name           string            `proxy:"name"`
++	Server         string            `proxy:"server"`
++	Port           int               `proxy:"port"`
++	Key            string            `proxy:"key,omitempty"`
++	Password       string            `proxy:"password,omitempty"`
++	Flag           string            `proxy:"flag,omitempty"`
++	Headers        map[string]string `proxy:"headers,omitempty"`
++	TLS            bool              `proxy:"tls,omitempty"`
++	SNI            string            `proxy:"sni,omitempty"`
++	SkipCertVerify bool              `proxy:"skip-cert-verify,omitempty"`
++	Fingerprint    string            `proxy:"fingerprint,omitempty"`
++	UDP            bool              `proxy:"udp,omitempty"`
 +}
 +
 +func cnsXorCrypt(data []byte, password []byte, passwordSub int) int {
@@ -183,13 +191,27 @@ index 0000000..3614f4e
 +	return &cnsStreamConn{Conn: conn, reader: br, password: c.password}, nil
 +}
 +
++// streamConn wraps a dialed connection with optional TLS then performs the
++// CNS pseudo-HTTP handshake. Returns the cipher stream conn.
++func (c *Cns) streamConn(ctx context.Context, conn net.Conn, host string, udp bool) (net.Conn, error) {
++	if c.tlsConfig != nil {
++		cc := tls.Client(conn, c.tlsConfig)
++		if err := cc.HandshakeContext(ctx); err != nil {
++			conn.Close()
++			return nil, fmt.Errorf("%s tls handshake error: %w", c.addr, err)
++		}
++		conn = cc
++	}
++	return c.handshake(ctx, conn, host, udp)
++}
++
 +// StreamConnContext implements C.ProxyAdapter
 +func (c *Cns) StreamConnContext(ctx context.Context, conn net.Conn, metadata *C.Metadata) (_ net.Conn, err error) {
 +	if ctx.Done() != nil {
 +		done := N.SetupContextForConn(ctx, conn)
 +		defer done(&err)
 +	}
-+	return c.handshake(ctx, conn, c.targetHost(metadata), false)
++	return c.streamConn(ctx, conn, c.targetHost(metadata), false)
 +}
 +
 +// DialContext implements C.ProxyAdapter
@@ -230,7 +252,7 @@ index 0000000..3614f4e
 +		defer done(&err)
 +	}
 +
-+	conn, err = c.handshake(ctx, conn, "0.0.0.0", true)
++	conn, err = c.streamConn(ctx, conn, "0.0.0.0", true)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -261,6 +283,26 @@ index 0000000..3614f4e
 +	}
 +
 +	addr := net.JoinHostPort(option.Server, strconv.Itoa(option.Port))
++
++	var tlsConfig *tls.Config
++	if option.TLS {
++		sni := option.Server
++		if option.SNI != "" {
++			sni = option.SNI
++		}
++		var err error
++		tlsConfig, err = ca.GetTLSConfig(ca.Option{
++			TLSConfig: &tls.Config{
++				InsecureSkipVerify: option.SkipCertVerify,
++				ServerName:         sni,
++			},
++			Fingerprint: option.Fingerprint,
++		})
++		if err != nil {
++			return nil, err
++		}
++	}
++
 +	cns := &Cns{
 +		Base: NewBase(BaseOption{
 +			Name:         option.Name,
@@ -274,11 +316,12 @@ index 0000000..3614f4e
 +			RoutingMark:  option.RoutingMark,
 +			Prefer:       option.IPVersion,
 +		}),
-+		option:   &option,
-+		proxyKey: key,
-+		udpFlag:  udpFlag,
-+		password: []byte(option.Password),
-+		headers:  option.Headers,
++		option:    &option,
++		proxyKey:  key,
++		udpFlag:   udpFlag,
++		password:  []byte(option.Password),
++		headers:   option.Headers,
++		tlsConfig: tlsConfig,
 +	}
 +	cns.dialer = option.NewDialer(cns.DialOptions())
 +	return cns, nil
@@ -381,13 +424,13 @@ index 0000000..3614f4e
 +func (pc *cnsPacketConn) SetReadDeadline(t time.Time) error  { return pc.Conn.SetReadDeadline(t) }
 +func (pc *cnsPacketConn) SetWriteDeadline(t time.Time) error { return pc.Conn.SetWriteDeadline(t) }
 diff --git a/adapter/parser.go b/adapter/parser.go
-index 9599616..a9cd322 100644
+index 9599616..c8b3453 100644
 --- a/adapter/parser.go
 +++ b/adapter/parser.go
-@@ -48,6 +48,13 @@ func ParseProxy(mapping map[string]any, options ...ProxyOption) (C.Proxy, error)
+@@ -55,6 +55,13 @@ func ParseProxy(mapping map[string]any, options ...ProxyOption) (C.Proxy, error)
  			break
  		}
- 		proxy, err = outbound.NewSocks5(*socksOption)
+ 		proxy, err = outbound.NewHttp(*httpOption)
 +	case "cns":
 +		cnsOption := &outbound.CnsOption{BasicOption: basicOption}
 +		err = decoder.Decode(mapping, cnsOption)
@@ -395,9 +438,9 @@ index 9599616..a9cd322 100644
 +			break
 +		}
 +		proxy, err = outbound.NewCns(*cnsOption)
- 	case "http":
- 		httpOption := &outbound.HttpOption{BasicOption: basicOption}
- 		err = decoder.Decode(mapping, httpOption)
+ 	case "vmess":
+ 		vmessOption := &outbound.VmessOption{BasicOption: basicOption}
+ 		err = decoder.Decode(mapping, vmessOption)
 diff --git a/constant/adapters.go b/constant/adapters.go
 index ddcdbea..e0d1f78 100644
 --- a/constant/adapters.go
