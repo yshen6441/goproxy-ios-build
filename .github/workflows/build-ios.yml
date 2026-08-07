@@ -159,16 +159,24 @@ jobs:
           EOF
           ldid -Sroothide.entitlements mihomo/mihomo-ios
 
+      - name: Download metacubexd dashboard
+        run: |
+          curl -sL -o /tmp/metacubexd.zip https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip
+          mkdir -p /tmp/metacubexd
+          unzip -q /tmp/metacubexd.zip -d /tmp/metacubexd
+          ls /tmp/metacubexd
+
       - name: Package deb (iphoneos-arm64e)
         run: |
-          mkdir -p pkg/DEBIAN pkg/usr/local/bin
+          mkdir -p pkg/DEBIAN pkg/usr/local/bin pkg/usr/local/share/mihomo/ui
           cp mihomo/mihomo-ios pkg/usr/local/bin/mihomo
+          cp -r /tmp/metacubexd/metacubexd-gh-pages/* pkg/usr/local/share/mihomo/ui/
           cat > pkg/DEBIAN/control <<'EOF'
           Package: com.metacubex.mihomo
           Name: mihomo
           Version: 1.19.29
           Architecture: iphoneos-arm64e
-          Description: mihomo (Clash.Meta) rule-based proxy for iOS (http/socks5/vmess/trojan/ss)
+          Description: mihomo (Clash.Meta) rule-based proxy for iOS (http/socks5/vmess/trojan/ss/cns)
           Maintainer: MetaCubeX
           Section: Networking
           Depends: firmware (>= 12.0)

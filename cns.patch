@@ -1,9 +1,9 @@
 diff --git a/adapter/outbound/cns.go b/adapter/outbound/cns.go
 new file mode 100644
-index 0000000..5d142b2
+index 0000000..3614f4e
 --- /dev/null
 +++ b/adapter/outbound/cns.go
-@@ -0,0 +1,320 @@
+@@ -0,0 +1,376 @@
 +package outbound
 +
 +import (
@@ -18,9 +18,16 @@ index 0000000..5d142b2
 +	"net"
 +	"strconv"
 +	"strings"
++	"sync"
 +	"time"
 +
++	N "github.com/metacubex/mihomo/common/net"
 +	C "github.com/metacubex/mihomo/constant"
++)
++
++const (
++	cnsMaxRespHeaderLen = 64 * 1024
++	cnsMaxUDPPayloadLen = 65535
 +)
 +
 +type Cns struct {
@@ -45,6 +52,9 @@ index 0000000..5d142b2
 +}
 +
 +func cnsXorCrypt(data []byte, password []byte, passwordSub int) int {
++	if len(password) == 0 {
++		return passwordSub
++	}
 +	for dataSub := 0; dataSub < len(data); {
 +		data[dataSub] ^= password[passwordSub] | byte(passwordSub)
 +		dataSub++
@@ -89,6 +99,13 @@ index 0000000..5d142b2
 +	writeSub int
 +}
 +
++var cnsStreamBufPool = sync.Pool{
++	New: func() any {
++		b := make([]byte, 0, 16*1024)
++		return &b
++	},
++}
++
 +func (c *cnsStreamConn) Read(b []byte) (int, error) {
 +	n, err := c.reader.Read(b)
 +	if n > 0 && len(c.password) != 0 {
@@ -101,7 +118,12 @@ index 0000000..5d142b2
 +	if len(c.password) == 0 {
 +		return c.Conn.Write(b)
 +	}
-+	enc := make([]byte, len(b))
++	bufPtr := cnsStreamBufPool.Get().(*[]byte)
++	buf := *bufPtr
++	if cap(buf) < len(b) {
++		buf = make([]byte, len(b))
++	}
++	enc := buf[:len(b)]
 +	copy(enc, b)
 +	c.writeSub = cnsXorCrypt(enc, c.password, c.writeSub)
 +	total := 0
@@ -109,9 +131,13 @@ index 0000000..5d142b2
 +		n, err := c.Conn.Write(enc[total:])
 +		total += n
 +		if err != nil {
++			*bufPtr = enc
++			cnsStreamBufPool.Put(bufPtr)
 +			return total, err
 +		}
 +	}
++	*bufPtr = enc
++	cnsStreamBufPool.Put(bufPtr)
 +	return len(b), nil
 +}
 +
@@ -139,20 +165,30 @@ index 0000000..5d142b2
 +			return nil, fmt.Errorf("%s read response error: %w", c.addr, err)
 +		}
 +		resp = append(resp, line...)
++		if len(resp) > cnsMaxRespHeaderLen {
++			conn.Close()
++			return nil, fmt.Errorf("%s cns response header too long", c.addr)
++		}
 +		if bytes.HasSuffix(resp, []byte("\r\n\r\n")) {
 +			break
 +		}
 +	}
-+	if !strings.Contains(string(resp), "200") {
++	firstLine := strings.SplitN(strings.TrimSpace(string(resp)), "\r\n", 2)[0]
++	status := strings.Split(firstLine, " ")
++	if len(status) < 2 || status[1] != "200" {
 +		conn.Close()
-+		return nil, fmt.Errorf("%s cns server error: %s", c.addr, strings.TrimSpace(strings.Split(string(resp), "\r\n")[0]))
++		return nil, fmt.Errorf("%s cns server error: %s", c.addr, firstLine)
 +	}
 +
 +	return &cnsStreamConn{Conn: conn, reader: br, password: c.password}, nil
 +}
 +
 +// StreamConnContext implements C.ProxyAdapter
-+func (c *Cns) StreamConnContext(ctx context.Context, conn net.Conn, metadata *C.Metadata) (net.Conn, error) {
++func (c *Cns) StreamConnContext(ctx context.Context, conn net.Conn, metadata *C.Metadata) (_ net.Conn, err error) {
++	if ctx.Done() != nil {
++		done := N.SetupContextForConn(ctx, conn)
++		defer done(&err)
++	}
 +	return c.handshake(ctx, conn, c.targetHost(metadata), false)
 +}
 +
@@ -188,6 +224,11 @@ index 0000000..5d142b2
 +	defer func(conn net.Conn) {
 +		safeConnClose(conn, err)
 +	}(conn)
++
++	if ctx.Done() != nil {
++		done := N.SetupContextForConn(ctx, conn)
++		defer done(&err)
++	}
 +
 +	conn, err = c.handshake(ctx, conn, "0.0.0.0", true)
 +	if err != nil {
@@ -247,6 +288,13 @@ index 0000000..5d142b2
 +	Conn *cnsStreamConn
 +}
 +
++var cnsUDPBufPool = sync.Pool{
++	New: func() any {
++		b := make([]byte, 64*1024)
++		return &b
++	},
++}
++
 +func (pc *cnsPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 +	host, portStr, err := net.SplitHostPort(addr.String())
 +	if err != nil {
@@ -259,6 +307,9 @@ index 0000000..5d142b2
 +	ip := net.ParseIP(host)
 +	if ip == nil {
 +		return 0, errors.New("parse udp addr error")
++	}
++	if len(b) > cnsMaxUDPPayloadLen {
++		return 0, errors.New("cns udp packet too large")
 +	}
 +
 +	var packet []byte
@@ -294,8 +345,13 @@ index 0000000..5d142b2
 +	if pkgLen < 12 {
 +		return 0, nil, errors.New("invalid cns udp packet length")
 +	}
-+	buf := make([]byte, pkgLen)
-+	if _, err := io.ReadFull(pc.Conn, buf); err != nil {
++	bufPtr := cnsUDPBufPool.Get().(*[]byte)
++	buf := *bufPtr
++	defer cnsUDPBufPool.Put(bufPtr)
++	if int(pkgLen) > len(buf) {
++		return 0, nil, errors.New("invalid cns udp packet length")
++	}
++	if _, err := io.ReadFull(pc.Conn, buf[:pkgLen]); err != nil {
 +		return 0, nil, err
 +	}
 +
@@ -305,14 +361,14 @@ index 0000000..5d142b2
 +	if addrType == 1 {
 +		addr.IP = net.IPv4(buf[4], buf[5], buf[6], buf[7])
 +		addr.Port = int(binary.BigEndian.Uint16(buf[8:10]))
-+		payload = buf[10:]
++		payload = buf[10:pkgLen]
 +	} else {
 +		if pkgLen < 24 {
 +			return 0, nil, errors.New("invalid cns udp packet length")
 +		}
 +		addr.IP = net.IP(buf[4:20])
 +		addr.Port = int(binary.BigEndian.Uint16(buf[20:22]))
-+		payload = buf[22:]
++		payload = buf[22:pkgLen]
 +	}
 +
 +	n := copy(b, payload)
