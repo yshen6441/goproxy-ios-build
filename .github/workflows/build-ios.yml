@@ -34,7 +34,6 @@ jobs:
       - name: Build goproxy (GOOS=ios arm64)
         working-directory: goproxy
         run: |
-          go mod download all
           export SDKROOT="$(xcrun -sdk iphoneos --show-sdk-path)"
           export GOOS=ios GOARCH=arm64 CGO_ENABLED=1
           export CC="$GITHUB_WORKSPACE/clangwrap.sh"
@@ -91,3 +90,86 @@ jobs:
           path: |
             goproxy/goproxy-ios
             goproxy_3.0_iphoneos-arm64e.deb
+
+  build-mihomo:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout mihomo source
+        uses: actions/checkout@v4
+        with:
+          repository: MetaCubeX/mihomo
+          ref: v1.19.29
+          path: mihomo
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Install ldid and dpkg
+        run: brew install ldid dpkg
+
+      - name: Create iOS clang wrapper (Apple toolchain)
+        run: |
+          cat > clangwrap.sh <<'EOF'
+          #!/bin/sh
+          exec xcrun -sdk iphoneos clang -arch arm64 -mios-version-min=17.0 "$@"
+          EOF
+          chmod +x clangwrap.sh
+
+      - name: Build mihomo (GOOS=ios arm64)
+        working-directory: mihomo
+        run: |
+          go mod download all
+          export SDKROOT="$(xcrun -sdk iphoneos --show-sdk-path)"
+          export GOOS=ios GOARCH=arm64 CGO_ENABLED=1
+          export CC="$GITHUB_WORKSPACE/clangwrap.sh"
+          go build -trimpath -ldflags "-s -w -X github.com/metacubex/mihomo/constant.Version=v1.19.29" -o mihomo-ios .
+
+      - name: Sign with roothide entitlements
+        run: |
+          cat > roothide.entitlements <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>platform-application</key>
+              <true/>
+              <key>com.apple.private.security.no-sandbox</key>
+              <true/>
+              <key>com.apple.private.security.storage.AppBundles</key>
+              <true/>
+              <key>com.apple.private.security.storage.AppDataContainers</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          ldid -Sroothide.entitlements mihomo/mihomo-ios
+
+      - name: Package deb (iphoneos-arm64e)
+        run: |
+          mkdir -p pkg/DEBIAN pkg/usr/local/bin
+          cp mihomo/mihomo-ios pkg/usr/local/bin/mihomo
+          cat > pkg/DEBIAN/control <<'EOF'
+          Package: com.metacubex.mihomo
+          Name: mihomo
+          Version: 1.19.29
+          Architecture: iphoneos-arm64e
+          Description: mihomo (Clash.Meta) rule-based proxy for iOS (http/socks5/vmess/trojan/ss)
+          Maintainer: MetaCubeX
+          Section: Networking
+          Depends: firmware (>= 12.0)
+          Author: MetaCubeX
+          Homepage: https://github.com/MetaCubeX/mihomo
+          EOF
+          chmod 755 pkg/DEBIAN
+          dpkg-deb -Zgzip -b pkg mihomo_1.19.29_iphoneos-arm64e.deb
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-ios-build
+          path: |
+            mihomo/mihomo-ios
+            mihomo_1.19.29_iphoneos-arm64e.deb
