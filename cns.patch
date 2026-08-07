@@ -1,0 +1,355 @@
+diff --git a/adapter/outbound/cns.go b/adapter/outbound/cns.go
+new file mode 100644
+index 0000000..9d46429
+--- /dev/null
++++ b/adapter/outbound/cns.go
+@@ -0,0 +1,310 @@
++package outbound
++
++import (
++	"bufio"
++	"bytes"
++	"context"
++	"encoding/base64"
++	"encoding/binary"
++	"errors"
++	"fmt"
++	"io"
++	"net"
++	"strconv"
++	"strings"
++	"time"
++
++	C "github.com/metacubex/mihomo/constant"
++)
++
++type Cns struct {
++	*Base
++	option   *CnsOption
++	proxyKey string
++	udpFlag  string
++	password []byte
++}
++
++type CnsOption struct {
++	BasicOption
++	Name            string `proxy:"name"`
++	Server          string `proxy:"server"`
++	Port            int    `proxy:"port"`
++	ProxyKey        string `proxy:"proxy-key,omitempty"`
++	UDPFlag         string `proxy:"udp-flag,omitempty"`
++	EncryptPassword string `proxy:"encrypt-password,omitempty"`
++	UDP             bool   `proxy:"udp,omitempty"`
++}
++
++func cnsXorCrypt(data []byte, password []byte, passwordSub int) int {
++	for dataSub := 0; dataSub < len(data); {
++		data[dataSub] ^= password[passwordSub] | byte(passwordSub)
++		dataSub++
++		passwordSub++
++		if passwordSub == len(password) {
++			passwordSub = 0
++		}
++	}
++	return passwordSub
++}
++
++func cnsEncryptHost(host string, password []byte) string {
++	data := make([]byte, len(host)+1)
++	copy(data, host)
++	cnsXorCrypt(data, password, 0)
++	return base64.StdEncoding.EncodeToString(data)
++}
++
++func cnsBuildHeader(proxyKey, host string, udpFlag string, password []byte, udp bool) string {
++	hostVal := host
++	if len(password) != 0 {
++		hostVal = cnsEncryptHost(host, password)
++	}
++	if udp {
++		return "CONNECT x HTTP/1.1\r\n" + proxyKey + ": " + hostVal + "\r\nX-CuteBi-Udp: " + udpFlag + "\r\n\r\n"
++	}
++	return "CONNECT x HTTP/1.1\r\n" + proxyKey + ": " + hostVal + "\r\n\r\n"
++}
++
++type cnsStreamConn struct {
++	net.Conn
++	reader   *bufio.Reader
++	password []byte
++	readSub  int
++	writeSub int
++}
++
++func (c *cnsStreamConn) Read(b []byte) (int, error) {
++	n, err := c.reader.Read(b)
++	if n > 0 && len(c.password) != 0 {
++		c.readSub = cnsXorCrypt(b[:n], c.password, c.readSub)
++	}
++	return n, err
++}
++
++func (c *cnsStreamConn) Write(b []byte) (int, error) {
++	if len(c.password) == 0 {
++		return c.Conn.Write(b)
++	}
++	enc := make([]byte, len(b))
++	copy(enc, b)
++	c.writeSub = cnsXorCrypt(enc, c.password, c.writeSub)
++	total := 0
++	for total < len(enc) {
++		n, err := c.Conn.Write(enc[total:])
++		total += n
++		if err != nil {
++			return total, err
++		}
++	}
++	return len(b), nil
++}
++
++func (c *Cns) targetHost(metadata *C.Metadata) string {
++	host := metadata.Host
++	if host == "" && metadata.DstIP.IsValid() {
++		host = metadata.DstIP.String()
++	}
++	return net.JoinHostPort(host, strconv.Itoa(int(metadata.DstPort)))
++}
++
++func (c *Cns) handshake(ctx context.Context, conn net.Conn, host string, udp bool) (net.Conn, error) {
++	header := cnsBuildHeader(c.proxyKey, host, c.udpFlag, c.password, udp)
++	if _, err := conn.Write([]byte(header)); err != nil {
++		conn.Close()
++		return nil, fmt.Errorf("%s write header error: %w", c.addr, err)
++	}
++
++	br := bufio.NewReader(conn)
++	var resp []byte
++	for {
++		line, err := br.ReadString('\n')
++		if err != nil {
++			conn.Close()
++			return nil, fmt.Errorf("%s read response error: %w", c.addr, err)
++		}
++		resp = append(resp, line...)
++		if bytes.HasSuffix(resp, []byte("\r\n\r\n")) {
++			break
++		}
++	}
++	if !strings.Contains(string(resp), "200") {
++		conn.Close()
++		return nil, fmt.Errorf("%s cns server error: %s", c.addr, strings.TrimSpace(strings.Split(string(resp), "\r\n")[0]))
++	}
++
++	return &cnsStreamConn{Conn: conn, reader: br, password: c.password}, nil
++}
++
++// StreamConnContext implements C.ProxyAdapter
++func (c *Cns) StreamConnContext(ctx context.Context, conn net.Conn, metadata *C.Metadata) (net.Conn, error) {
++	return c.handshake(ctx, conn, c.targetHost(metadata), false)
++}
++
++// DialContext implements C.ProxyAdapter
++func (c *Cns) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
++	conn, err := c.dialer.DialContext(ctx, "tcp", c.addr)
++	if err != nil {
++		return nil, fmt.Errorf("%s connect error: %w", c.addr, err)
++	}
++
++	defer func(conn net.Conn) {
++		safeConnClose(conn, err)
++	}(conn)
++
++	conn, err = c.StreamConnContext(ctx, conn, metadata)
++	if err != nil {
++		return nil, err
++	}
++
++	return NewConn(conn, c), nil
++}
++
++// ListenPacketContext implements C.ProxyAdapter
++func (c *Cns) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (_ C.PacketConn, err error) {
++	if err = c.ResolveUDP(ctx, metadata); err != nil {
++		return nil, err
++	}
++	conn, err := c.dialer.DialContext(ctx, "tcp", c.addr)
++	if err != nil {
++		return nil, fmt.Errorf("%s connect error: %w", c.addr, err)
++	}
++
++	defer func(conn net.Conn) {
++		safeConnClose(conn, err)
++	}(conn)
++
++	conn, err = c.handshake(ctx, conn, "0.0.0.0", true)
++	if err != nil {
++		return nil, err
++	}
++
++	return NewPacketConn(&cnsPacketConn{Conn: conn.(*cnsStreamConn)}, c), nil
++}
++
++// SupportUDP implements C.ProxyAdapter
++func (c *Cns) SupportUDP() bool {
++	return c.udp
++}
++
++// ProxyInfo implements C.ProxyAdapter
++func (c *Cns) ProxyInfo() C.ProxyInfo {
++	info := c.Base.ProxyInfo()
++	info.DialerProxy = c.option.DialerProxy
++	return info
++}
++
++func NewCns(option CnsOption) (*Cns, error) {
++	proxyKey := option.ProxyKey
++	if proxyKey == "" {
++		proxyKey = "Host"
++	}
++	udpFlag := option.UDPFlag
++	if udpFlag == "" {
++		udpFlag = "httpUDP"
++	}
++
++	addr := net.JoinHostPort(option.Server, strconv.Itoa(option.Port))
++	cns := &Cns{
++		Base: NewBase(BaseOption{
++			Name:         option.Name,
++			Addr:         addr,
++			Type:         C.Cns,
++			ProviderName: option.ProviderName,
++			UDP:          option.UDP,
++			TFO:          option.TFO,
++			MPTCP:        option.MPTCP,
++			Interface:    option.Interface,
++			RoutingMark:  option.RoutingMark,
++			Prefer:       option.IPVersion,
++		}),
++		option:   &option,
++		proxyKey: proxyKey,
++		udpFlag:  udpFlag,
++		password: []byte(option.EncryptPassword),
++	}
++	cns.dialer = option.NewDialer(cns.DialOptions())
++	return cns, nil
++}
++
++type cnsPacketConn struct {
++	Conn *cnsStreamConn
++}
++
++func (pc *cnsPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
++	host, portStr, err := net.SplitHostPort(addr.String())
++	if err != nil {
++		return 0, err
++	}
++	port, err := strconv.Atoi(portStr)
++	if err != nil {
++		return 0, err
++	}
++	ip := net.ParseIP(host)
++	if ip == nil {
++		return 0, errors.New("parse udp addr error")
++	}
++
++	var packet []byte
++	if ip4 := ip.To4(); ip4 != nil {
++		packet = make([]byte, 12+len(b))
++		binary.LittleEndian.PutUint16(packet[0:2], uint16(len(b)+10))
++		packet[5] = 1
++		copy(packet[6:10], ip4)
++		binary.BigEndian.PutUint16(packet[10:12], uint16(port))
++		copy(packet[12:], b)
++	} else {
++		packet = make([]byte, 24+len(b))
++		binary.LittleEndian.PutUint16(packet[0:2], uint16(len(b)+22))
++		packet[5] = 3
++		copy(packet[6:22], ip)
++		binary.BigEndian.PutUint16(packet[22:24], uint16(port))
++		copy(packet[24:], b)
++	}
++
++	_, err = pc.Conn.Write(packet)
++	if err != nil {
++		return 0, err
++	}
++	return len(b), nil
++}
++
++func (pc *cnsPacketConn) ReadFrom(b []byte) (int, net.Addr, error) {
++	var lenBuf [2]byte
++	if _, err := io.ReadFull(pc.Conn, lenBuf[:]); err != nil {
++		return 0, nil, err
++	}
++	pkgLen := binary.LittleEndian.Uint16(lenBuf[:])
++	if pkgLen < 12 {
++		return 0, nil, errors.New("invalid cns udp packet length")
++	}
++	buf := make([]byte, pkgLen)
++	if _, err := io.ReadFull(pc.Conn, buf); err != nil {
++		return 0, nil, err
++	}
++
++	addrType := buf[3]
++	addr := net.UDPAddr{}
++	var payload []byte
++	if addrType == 1 {
++		addr.IP = net.IPv4(buf[4], buf[5], buf[6], buf[7])
++		addr.Port = int(binary.BigEndian.Uint16(buf[8:10]))
++		payload = buf[10:]
++	} else {
++		if pkgLen < 24 {
++			return 0, nil, errors.New("invalid cns udp packet length")
++		}
++		addr.IP = net.IP(buf[4:20])
++		addr.Port = int(binary.BigEndian.Uint16(buf[20:22]))
++		payload = buf[22:]
++	}
++
++	n := copy(b, payload)
++	return n, &addr, nil
++}
++
++func (pc *cnsPacketConn) LocalAddr() net.Addr                { return pc.Conn.LocalAddr() }
++func (pc *cnsPacketConn) Close() error                       { return pc.Conn.Close() }
++func (pc *cnsPacketConn) SetDeadline(t time.Time) error      { return pc.Conn.SetDeadline(t) }
++func (pc *cnsPacketConn) SetReadDeadline(t time.Time) error  { return pc.Conn.SetReadDeadline(t) }
++func (pc *cnsPacketConn) SetWriteDeadline(t time.Time) error { return pc.Conn.SetWriteDeadline(t) }
+diff --git a/adapter/parser.go b/adapter/parser.go
+index 9599616..a9cd322 100644
+--- a/adapter/parser.go
++++ b/adapter/parser.go
+@@ -48,6 +48,13 @@ func ParseProxy(mapping map[string]any, options ...ProxyOption) (C.Proxy, error)
+ 			break
+ 		}
+ 		proxy, err = outbound.NewSocks5(*socksOption)
++	case "cns":
++		cnsOption := &outbound.CnsOption{BasicOption: basicOption}
++		err = decoder.Decode(mapping, cnsOption)
++		if err != nil {
++			break
++		}
++		proxy, err = outbound.NewCns(*cnsOption)
+ 	case "http":
+ 		httpOption := &outbound.HttpOption{BasicOption: basicOption}
+ 		err = decoder.Decode(mapping, httpOption)
+diff --git a/constant/adapters.go b/constant/adapters.go
+index ddcdbea..e0d1f78 100644
+--- a/constant/adapters.go
++++ b/constant/adapters.go
+@@ -53,6 +53,7 @@ const (
+ 	OpenVPN
+ 	Tailscale
+ 	GostRelay
++	Cns
+ )
+ 
+ const (
+@@ -236,6 +237,8 @@ func (at AdapterType) String() string {
+ 		return "Tailscale"
+ 	case GostRelay:
+ 		return "GostRelay"
++	case Cns:
++		return "Cns"
+ 	case Relay:
+ 		return "Relay"
+ 	case Selector:

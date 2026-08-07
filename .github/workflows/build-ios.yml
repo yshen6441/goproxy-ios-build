@@ -102,6 +102,17 @@ jobs:
           ref: v1.19.29
           path: mihomo
 
+      - name: Checkout build repo (cns patch)
+        uses: actions/checkout@v4
+        with:
+          path: buildrepo
+
+      - name: Apply CNS protocol patch
+        working-directory: mihomo
+        run: |
+          git apply "$GITHUB_WORKSPACE/buildrepo/cns.patch"
+          ls adapter/outbound/cns.go
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
