@@ -1,0 +1,92 @@
+name: Build goproxy for iOS (roothide)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout goproxy source
+        uses: actions/checkout@v4
+        with:
+          repository: snail007/goproxy
+          ref: master
+          path: goproxy
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Install ldid and dpkg
+        run: brew install ldid dpkg
+
+      - name: Create iOS clang wrapper (Apple toolchain)
+        run: |
+          cat > clangwrap.sh <<'EOF'
+          #!/bin/sh
+          exec xcrun -sdk iphoneos clang -arch arm64 -mios-version-min=17.0 "$@"
+          EOF
+          chmod +x clangwrap.sh
+
+      - name: Build goproxy (GOOS=ios arm64)
+        working-directory: goproxy
+        run: |
+          export SDKROOT="$(xcrun -sdk iphoneos --show-sdk-path)"
+          export GOOS=ios GOARCH=arm64 CGO_ENABLED=1
+          export CC="$GITHUB_WORKSPACE/clangwrap.sh"
+          go build -trimpath -ldflags "-s -w" -o goproxy-ios .
+
+      - name: Sign with roothide entitlements
+        run: |
+          cat > roothide.entitlements <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>platform-application</key>
+              <true/>
+              <key>com.apple.private.security.no-sandbox</key>
+              <true/>
+              <key>com.apple.private.security.storage.AppBundles</key>
+              <true/>
+              <key>com.apple.private.security.storage.AppDataContainers</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          ldid -Sroothide.entitlements goproxy/goproxy-ios
+
+      - name: Verify Mach-O
+        run: |
+          lipo -info goproxy/goproxy-ios
+          otool -l goproxy/goproxy-ios | grep -A6 LC_BUILD_VERSION | head -12
+
+      - name: Package deb (iphoneos-arm64e)
+        run: |
+          mkdir -p pkg/DEBIAN pkg/usr/local/bin
+          cp goproxy/goproxy-ios pkg/usr/local/bin/goproxy
+          cat > pkg/DEBIAN/control <<'EOF'
+          Package: com.snail007.goproxy
+          Name: goproxy
+          Version: 3.0
+          Architecture: iphoneos-arm64e
+          Description: High-performance proxy for iOS (http/https/socks5/tcp/udp/tunnel)
+          Maintainer: goproxy <goproxy.win>
+          Section: Networking
+          Depends: firmware (>= 12.0)
+          Author: snail007
+          Homepage: https://www.goproxy.win/
+          EOF
+          chmod 755 pkg/DEBIAN
+          dpkg-deb -Zgzip -b pkg goproxy_3.0_iphoneos-arm64e.deb
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: goproxy-ios-build
+          path: |
+            goproxy/goproxy-ios
+            goproxy_3.0_iphoneos-arm64e.deb
