@@ -1,9 +1,9 @@
 diff --git a/adapter/outbound/cns.go b/adapter/outbound/cns.go
 new file mode 100644
-index 0000000..9d46429
+index 0000000..5d142b2
 --- /dev/null
 +++ b/adapter/outbound/cns.go
-@@ -0,0 +1,310 @@
+@@ -0,0 +1,320 @@
 +package outbound
 +
 +import (
@@ -29,17 +29,19 @@ index 0000000..9d46429
 +	proxyKey string
 +	udpFlag  string
 +	password []byte
++	headers  map[string]string
 +}
 +
 +type CnsOption struct {
 +	BasicOption
-+	Name            string `proxy:"name"`
-+	Server          string `proxy:"server"`
-+	Port            int    `proxy:"port"`
-+	ProxyKey        string `proxy:"proxy-key,omitempty"`
-+	UDPFlag         string `proxy:"udp-flag,omitempty"`
-+	EncryptPassword string `proxy:"encrypt-password,omitempty"`
-+	UDP             bool   `proxy:"udp,omitempty"`
++	Name     string            `proxy:"name"`
++	Server   string            `proxy:"server"`
++	Port     int               `proxy:"port"`
++	Key      string            `proxy:"key,omitempty"`
++	Password string            `proxy:"password,omitempty"`
++	Flag     string            `proxy:"flag,omitempty"`
++	Headers  map[string]string `proxy:"headers,omitempty"`
++	UDP      bool              `proxy:"udp,omitempty"`
 +}
 +
 +func cnsXorCrypt(data []byte, password []byte, passwordSub int) int {
@@ -61,15 +63,22 @@ index 0000000..9d46429
 +	return base64.StdEncoding.EncodeToString(data)
 +}
 +
-+func cnsBuildHeader(proxyKey, host string, udpFlag string, password []byte, udp bool) string {
++func cnsBuildHeader(key, host, flag string, password []byte, headers map[string]string, udp bool) string {
 +	hostVal := host
 +	if len(password) != 0 {
 +		hostVal = cnsEncryptHost(host, password)
 +	}
-+	if udp {
-+		return "CONNECT x HTTP/1.1\r\n" + proxyKey + ": " + hostVal + "\r\nX-CuteBi-Udp: " + udpFlag + "\r\n\r\n"
++	var extra strings.Builder
++	for k, v := range headers {
++		extra.WriteString("\r\n")
++		extra.WriteString(k)
++		extra.WriteString(": ")
++		extra.WriteString(v)
 +	}
-+	return "CONNECT x HTTP/1.1\r\n" + proxyKey + ": " + hostVal + "\r\n\r\n"
++	if udp {
++		return "CONNECT x HTTP/1.1" + extra.String() + "\r\n" + key + ": " + hostVal + "\r\nX-CuteBi-Udp: " + flag + "\r\n\r\n"
++	}
++	return "CONNECT x HTTP/1.1" + extra.String() + "\r\n" + key + ": " + hostVal + "\r\n\r\n"
 +}
 +
 +type cnsStreamConn struct {
@@ -115,7 +124,7 @@ index 0000000..9d46429
 +}
 +
 +func (c *Cns) handshake(ctx context.Context, conn net.Conn, host string, udp bool) (net.Conn, error) {
-+	header := cnsBuildHeader(c.proxyKey, host, c.udpFlag, c.password, udp)
++	header := cnsBuildHeader(c.proxyKey, host, c.udpFlag, c.password, c.headers, udp)
 +	if _, err := conn.Write([]byte(header)); err != nil {
 +		conn.Close()
 +		return nil, fmt.Errorf("%s write header error: %w", c.addr, err)
@@ -201,11 +210,11 @@ index 0000000..9d46429
 +}
 +
 +func NewCns(option CnsOption) (*Cns, error) {
-+	proxyKey := option.ProxyKey
-+	if proxyKey == "" {
-+		proxyKey = "Host"
++	key := option.Key
++	if key == "" {
++		key = "Meng"
 +	}
-+	udpFlag := option.UDPFlag
++	udpFlag := option.Flag
 +	if udpFlag == "" {
 +		udpFlag = "httpUDP"
 +	}
@@ -225,9 +234,10 @@ index 0000000..9d46429
 +			Prefer:       option.IPVersion,
 +		}),
 +		option:   &option,
-+		proxyKey: proxyKey,
++		proxyKey: key,
 +		udpFlag:  udpFlag,
-+		password: []byte(option.EncryptPassword),
++		password: []byte(option.Password),
++		headers:  option.Headers,
 +	}
 +	cns.dialer = option.NewDialer(cns.DialOptions())
 +	return cns, nil
