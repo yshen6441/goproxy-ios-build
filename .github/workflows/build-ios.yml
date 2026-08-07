@@ -34,6 +34,7 @@ jobs:
       - name: Build goproxy (GOOS=ios arm64)
         working-directory: goproxy
         run: |
+          go mod download all
           export SDKROOT="$(xcrun -sdk iphoneos --show-sdk-path)"
           export GOOS=ios GOARCH=arm64 CGO_ENABLED=1
           export CC="$GITHUB_WORKSPACE/clangwrap.sh"
