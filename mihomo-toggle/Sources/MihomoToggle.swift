@@ -537,7 +537,7 @@ struct ContentView: View {
                 usleep(1_000_000)
             }
             DispatchQueue.main.async {
-                if self.processAlive(readPid()) {
+                if processAlive(readPid()) {
                     self.proxyGroups = groups
                 }
             }
