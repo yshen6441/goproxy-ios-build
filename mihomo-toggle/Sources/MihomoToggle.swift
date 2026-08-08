@@ -262,7 +262,7 @@ struct ContentView: View {
         )
     }
 
-    private var body: some View {
+    var body: some View {
         VStack(spacing: 20) {
             Spacer()
 
@@ -321,7 +321,7 @@ struct ContentView: View {
                 }
                 .pickerStyle(MenuPickerStyle())
                 .frame(maxWidth: 240)
-                .disabled(masterOn)
+                .disabled(masterDesired)
                 .onChange(of: selectedConfig) { newValue in
                     applyConfig(newValue)
                 }
