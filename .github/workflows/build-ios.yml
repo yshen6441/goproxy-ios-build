@@ -286,4 +286,4 @@ jobs:
           name: mihomo-toggle-build
           path: |
             buildrepo/mihomo-toggle/MihomoToggle.app/
-            buildrepo/mihomo-toggle/mihomo-toggle_1.0_iphoneos-arm64e.deb
+            buildrepo/mihomo-toggle/mihomo-toggle_*.deb
