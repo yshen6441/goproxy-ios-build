@@ -158,8 +158,11 @@ func startMihomo(configPath: String) -> pid_t {
         posix_spawn_file_actions_adddup2(&fileActions, logFD, STDERR_FILENO)
         posix_spawn_file_actions_addclose(&fileActions, logFD)
     }
-    if !cwdPath.isEmpty {
-        posix_spawn_file_actions_addchdir_np(&fileActions, cwdPath)
+    if !cwdPath.isEmpty && chdir(cwdPath) != 0 {
+        let err = String(cString: strerror(errno))
+        lastSpawnError = "chdir 到 \(cwdPath) 失败: \(err)"
+        posix_spawn_file_actions_destroy(&fileActions)
+        return 0
     }
 
     var attr: posix_spawnattr_t?
