@@ -656,7 +656,6 @@ struct ContentView: View {
         }
         vpnBusy = false
     }
-}
 
     private func loadProxyGroupsInBackground() {
         DispatchQueue.global().async {
