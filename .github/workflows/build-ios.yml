@@ -244,11 +244,12 @@ jobs:
       - name: Package deb (iphoneos-arm64e)
         working-directory: buildrepo/mihomo-toggle
         run: |
-          mkdir -p pkg/DEBIAN pkg/Applications pkg/usr/local/share/mihomo
+          mkdir -p pkg/DEBIAN pkg/Applications pkg/usr/local/share/mihomo pkg/Library/LaunchDaemons
           cp -r MihomoToggle.app pkg/Applications/
           cp helper.sh pkg/usr/local/share/mihomo/helper.sh
-          cp com.metacubex.mihomo.plist pkg/usr/local/share/mihomo/com.metacubex.mihomo.plist
-          cp com.metacubex.helper.plist pkg/usr/local/share/mihomo/com.metacubex.helper.plist
+          cp run-mihomo.sh pkg/usr/local/share/mihomo/run-mihomo.sh
+          cp com.metacubex.mihomo.plist pkg/Library/LaunchDaemons/
+          cp com.metacubex.helper.plist pkg/Library/LaunchDaemons/
           cat > pkg/DEBIAN/control <<'EOF'
           Package: com.metacubex.mihomo-toggle
           Name: mihomo-toggle
@@ -263,9 +264,7 @@ jobs:
           cat > pkg/DEBIAN/postinst <<'EOF'
           #!/bin/bash
           mkdir -p /var/mobile/.config/mihomo
-          cp -f /usr/local/share/mihomo/com.metacubex.mihomo.plist /Library/LaunchDaemons/com.metacubex.mihomo.plist
-          cp -f /usr/local/share/mihomo/com.metacubex.helper.plist /Library/LaunchDaemons/com.metacubex.helper.plist
-          /bin/launchctl bootstrap system /Library/LaunchDaemons/com.metacubex.helper.plist 2>/dev/null || true
+          /var/jb/usr/bin/launchctl bootstrap system /var/jb/Library/LaunchDaemons/com.metacubex.helper.plist 2>/dev/null || true
           if [ -x /var/jb/usr/bin/uicache ]; then
             /var/jb/usr/bin/uicache -a 2>/dev/null || true
           fi
@@ -273,8 +272,8 @@ jobs:
           EOF
           cat > pkg/DEBIAN/prerm <<'EOF'
           #!/bin/bash
-          /bin/launchctl bootout system/com.metacubex.helper 2>/dev/null || true
-          /bin/launchctl bootout system/com.metacubex.mihomo 2>/dev/null || true
+          /var/jb/usr/bin/launchctl bootout system/com.metacubex.helper 2>/dev/null || true
+          /var/jb/usr/bin/launchctl bootout system/com.metacubex.mihomo 2>/dev/null || true
           exit 0
           EOF
           chmod 755 pkg/DEBIAN/postinst pkg/DEBIAN/prerm

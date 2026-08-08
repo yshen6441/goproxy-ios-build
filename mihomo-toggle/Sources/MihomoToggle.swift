@@ -1,8 +1,10 @@
 import SwiftUI
 import Foundation
 
-let CTL_PATH = "/var/mobile/.config/mihomo/.ctl"
-let STATUS_PATH = "/var/mobile/.config/mihomo/.status"
+let CONFIG_DIR = "/var/mobile/.config/mihomo"
+let CTL_PATH = CONFIG_DIR + "/.ctl"
+let STATUS_PATH = CONFIG_DIR + "/.status"
+let CFG_PATH = CONFIG_DIR + "/.config_path"
 
 @main
 struct MihomoToggleApp: App {
@@ -16,11 +18,14 @@ struct MihomoToggleApp: App {
 struct ContentView: View {
     @State private var status = "unknown"
     @State private var busy = false
+    @State private var selectedConfig = ""
+    @State private var configs: [String] = []
+    @State private var lastError = ""
 
     private let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(spacing: 40) {
+        VStack(spacing: 20) {
             Spacer()
 
             Text("mihomo")
@@ -45,9 +50,35 @@ struct ContentView: View {
             }
             .disabled(busy)
 
-            Text("配置文件: /var/mobile/.config/mihomo/baidu.yaml")
-                .font(.footnote)
-                .foregroundColor(.secondary)
+            VStack(spacing: 12) {
+                Text("配置切换")
+                    .font(.headline)
+
+                Picker("配置", selection: $selectedConfig) {
+                    ForEach(configs, id: \.self) { name in
+                        Text(name).tag(name)
+                    }
+                }
+                .pickerStyle(MenuPickerStyle())
+                .frame(maxWidth: 240)
+                .onChange(of: selectedConfig) { newValue in
+                    applyConfig(newValue)
+                }
+
+                if !lastError.isEmpty {
+                    Text(lastError)
+                        .font(.footnote)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                Text("配置文件目录: \(CONFIG_DIR)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
 
             Spacer()
         }
@@ -55,6 +86,7 @@ struct ContentView: View {
             refreshStatus()
         }
         .onAppear {
+            loadConfigs()
             refreshStatus()
         }
     }
@@ -85,13 +117,61 @@ struct ContentView: View {
         status == "running" ? .red : .blue
     }
 
+    private func loadConfigs() {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: CONFIG_DIR) else {
+            lastError = "无法读取配置目录 \(CONFIG_DIR)"
+            return
+        }
+        configs = files
+            .filter { $0.hasSuffix(".yaml") || $0.hasSuffix(".yml") }
+            .sorted()
+        if let cur = try? String(contentsOfFile: CFG_PATH, encoding: .utf8) {
+            let name = (cur as NSString).lastPathComponent
+            if configs.contains(name) {
+                selectedConfig = name
+                return
+            }
+        }
+        if configs.contains("baidu.yaml") {
+            selectedConfig = "baidu.yaml"
+        } else if let first = configs.first {
+            selectedConfig = first
+        }
+    }
+
+    private func applyConfig(_ name: String) {
+        guard !name.isEmpty else { return }
+        let fullPath = CONFIG_DIR + "/" + name
+        do {
+            try Data(fullPath.utf8).write(to: URL(fileURLWithPath: CFG_PATH))
+            lastError = "已切换到 \(name)，正在重启 mihomo..."
+        } catch {
+            lastError = "写入配置失败: \(error.localizedDescription)"
+            return
+        }
+        sendCmd("restart")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            refreshStatus()
+        }
+    }
+
     private func toggle() {
         busy = true
+        lastError = ""
         let cmd = status == "running" ? "stop" : "start"
-        try? Data(cmd.utf8).write(to: URL(fileURLWithPath: CTL_PATH))
+        sendCmd(cmd)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             refreshStatus()
             busy = false
+        }
+    }
+
+    private func sendCmd(_ cmd: String) {
+        do {
+            try Data(cmd.utf8).write(to: URL(fileURLWithPath: CTL_PATH))
+        } catch {
+            lastError = "写入控制文件失败: \(error.localizedDescription)"
         }
     }
 

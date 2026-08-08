@@ -6,11 +6,8 @@
     <string>com.metacubex.mihomo</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/var/jb/usr/local/bin/mihomo</string>
-        <string>-d</string>
-        <string>/var/mobile/.config/mihomo</string>
-        <string>-f</string>
-        <string>/var/mobile/.config/mihomo/baidu.yaml</string>
+        <string>/bin/sh</string>
+        <string>/var/jb/usr/local/share/mihomo/run-mihomo.sh</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
