@@ -1,10 +1,82 @@
 import SwiftUI
-import Foundation
+import Darwin
 
 let CONFIG_DIR = "/var/mobile/.config/mihomo"
-let CTL_PATH = CONFIG_DIR + "/.ctl"
-let STATUS_PATH = CONFIG_DIR + "/.status"
+let MIHOMO_BIN = "/var/jb/usr/local/bin/mihomo"
+let PID_PATH = CONFIG_DIR + "/.mihomo.pid"
 let CFG_PATH = CONFIG_DIR + "/.config_path"
+let LOG_PATH = CONFIG_DIR + "/mihomo.log"
+
+func readPid() -> pid_t {
+    guard let s = try? String(contentsOfFile: PID_PATH, encoding: .utf8) else { return 0 }
+    return pid_t(s.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+}
+
+func processAlive(_ pid: pid_t) -> Bool {
+    if pid <= 0 { return false }
+    return kill(pid, 0) == 0
+}
+
+func stopMihomo() {
+    let pid = readPid()
+    if pid > 0 {
+        kill(pid, SIGTERM)
+        for _ in 0..<20 {
+            if !processAlive(pid) { break }
+            usleep(100_000)
+        }
+        if processAlive(pid) {
+            kill(pid, SIGKILL)
+        }
+    }
+    try? FileManager.default.removeItem(atPath: PID_PATH)
+}
+
+@discardableResult
+func startMihomo(configPath: String) -> pid_t {
+    stopMihomo()
+    usleep(200_000)
+
+    let argv: [UnsafeMutablePointer<CChar>?] = [
+        strdup(MIHOMO_BIN),
+        strdup("-d"),
+        strdup(CONFIG_DIR),
+        strdup("-f"),
+        strdup(configPath),
+        nil
+    ]
+    defer {
+        for p in argv { if let p = p { free(p) } }
+    }
+
+    let logFD = open(LOG_PATH, O_WRONLY | O_CREAT | O_APPEND, 0o644)
+    let fileActions = UnsafeMutablePointer<posix_spawn_file_actions_t>.allocate(capacity: 1)
+    posix_spawn_file_actions_init(fileActions)
+    defer {
+        posix_spawn_file_actions_destroy(fileActions)
+        fileActions.deallocate()
+    }
+    if logFD >= 0 {
+        posix_spawn_file_actions_adddup2(fileActions, logFD, STDOUT_FILENO)
+        posix_spawn_file_actions_adddup2(fileActions, logFD, STDERR_FILENO)
+        posix_spawn_file_actions_addclose(fileActions, logFD)
+    }
+
+    let attr = UnsafeMutablePointer<posix_spawnattr_t>.allocate(capacity: 1)
+    posix_spawnattr_init(attr)
+    defer {
+        posix_spawnattr_destroy(attr)
+        attr.deallocate()
+    }
+    posix_spawnattr_setflags(attr, Int16(POSIX_SPAWN_SETPGROUP))
+
+    var pid: pid_t = 0
+    let rc = posix_spawn(&pid, MIHOMO_BIN, fileActions, attr, argv, nil)
+    if rc == 0 && pid > 0 {
+        try? Data("\(pid)".utf8).write(to: URL(fileURLWithPath: PID_PATH))
+    }
+    return pid
+}
 
 @main
 struct MihomoToggleApp: App {
@@ -21,6 +93,7 @@ struct ContentView: View {
     @State private var selectedConfig = ""
     @State private var configs: [String] = []
     @State private var lastError = ""
+    @State private var showLog = false
 
     private let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
@@ -73,11 +146,14 @@ struct ContentView: View {
                         .padding(.horizontal)
                 }
 
-                Text("配置文件目录: \(CONFIG_DIR)")
+                Button("查看运行日志") {
+                    showLog = true
+                }
+                .font(.footnote)
+
+                Text("目录: \(CONFIG_DIR)")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
             }
 
             Spacer()
@@ -89,13 +165,15 @@ struct ContentView: View {
             loadConfigs()
             refreshStatus()
         }
+        .sheet(isPresented: $showLog) {
+            LogView()
+        }
     }
 
     private var statusColor: Color {
         switch status {
         case "running": return .green
         case "stopped": return .gray
-        case "error": return .red
         default: return .orange
         }
     }
@@ -104,7 +182,6 @@ struct ContentView: View {
         switch status {
         case "running": return "运行中"
         case "stopped": return "已停止"
-        case "error": return "启动失败"
         default: return "未知"
         }
     }
@@ -140,47 +217,82 @@ struct ContentView: View {
         }
     }
 
+    private func currentConfigPath() -> String {
+        if !selectedConfig.isEmpty {
+            return CONFIG_DIR + "/" + selectedConfig
+        }
+        return CONFIG_DIR + "/baidu.yaml"
+    }
+
     private func applyConfig(_ name: String) {
         guard !name.isEmpty else { return }
-        let fullPath = CONFIG_DIR + "/" + name
         do {
-            try Data(fullPath.utf8).write(to: URL(fileURLWithPath: CFG_PATH))
-            lastError = "已切换到 \(name)，正在重启 mihomo..."
+            try Data((CONFIG_DIR + "/" + name).utf8).write(to: URL(fileURLWithPath: CFG_PATH))
+            lastError = "已切换到 \(name)"
         } catch {
             lastError = "写入配置失败: \(error.localizedDescription)"
             return
         }
-        sendCmd("restart")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            refreshStatus()
+        if status == "running" {
+            restart()
         }
     }
 
     private func toggle() {
         busy = true
         lastError = ""
-        let cmd = status == "running" ? "stop" : "start"
-        sendCmd(cmd)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        if status == "running" {
+            stopMihomo()
             refreshStatus()
-            busy = false
+        } else {
+            let pid = startMihomo(configPath: currentConfigPath())
+            if pid > 0 {
+                lastError = "mihomo 已启动 (pid \(pid))"
+            } else {
+                lastError = "启动失败"
+            }
+            refreshStatus()
         }
+        busy = false
     }
 
-    private func sendCmd(_ cmd: String) {
-        do {
-            try Data(cmd.utf8).write(to: URL(fileURLWithPath: CTL_PATH))
-        } catch {
-            lastError = "写入控制文件失败: \(error.localizedDescription)"
+    private func restart() {
+        busy = true
+        lastError = ""
+        let pid = startMihomo(configPath: currentConfigPath())
+        if pid > 0 {
+            lastError = "mihomo 已用新配置重启 (pid \(pid))"
+        } else {
+            lastError = "重启失败"
         }
+        refreshStatus()
+        busy = false
     }
 
     private func refreshStatus() {
-        if let s = try? String(contentsOfFile: STATUS_PATH, encoding: .utf8) {
-            let v = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if v == "running" || v == "stopped" || v == "error" {
-                status = v
+        status = processAlive(readPid()) ? "running" : "stopped"
+    }
+}
+
+struct LogView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var content = ""
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                Text(content.isEmpty ? "(日志为空)" : content)
+                    .font(.system(.footnote, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
             }
+            .navigationTitle("mihomo.log")
+            .navigationBarItems(trailing: Button("完成") {
+                dismiss()
+            })
+        }
+        .onAppear {
+            content = (try? String(contentsOfFile: LOG_PATH, encoding: .utf8)) ?? "(读取失败)"
         }
     }
 }

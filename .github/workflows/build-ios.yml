@@ -244,18 +244,14 @@ jobs:
       - name: Package deb (iphoneos-arm64e)
         working-directory: buildrepo/mihomo-toggle
         run: |
-          mkdir -p pkg/DEBIAN pkg/Applications pkg/usr/local/share/mihomo pkg/Library/LaunchDaemons
+          mkdir -p pkg/DEBIAN pkg/Applications
           cp -r MihomoToggle.app pkg/Applications/
-          cp helper.sh pkg/usr/local/share/mihomo/helper.sh
-          cp run-mihomo.sh pkg/usr/local/share/mihomo/run-mihomo.sh
-          cp com.metacubex.mihomo.plist pkg/Library/LaunchDaemons/
-          cp com.metacubex.helper.plist pkg/Library/LaunchDaemons/
           cat > pkg/DEBIAN/control <<'EOF'
           Package: com.metacubex.mihomo-toggle
           Name: mihomo-toggle
-          Version: 1.0
+          Version: 1.1
           Architecture: iphoneos-arm64e
-          Description: One-tap start/stop toggle for mihomo (roothide)
+          Description: One-tap run/stop mihomo with config switching (roothide)
           Maintainer: MetaCubeX
           Section: Utilities
           Depends: firmware (>= 15.0)
@@ -264,7 +260,9 @@ jobs:
           cat > pkg/DEBIAN/postinst <<'EOF'
           #!/bin/bash
           mkdir -p /var/mobile/.config/mihomo
-          /var/jb/usr/bin/launchctl bootstrap system /var/jb/Library/LaunchDaemons/com.metacubex.helper.plist 2>/dev/null || true
+          /var/jb/usr/bin/launchctl bootout system/com.metacubex.helper 2>/dev/null || true
+          /var/jb/usr/bin/launchctl bootout system/com.metacubex.mihomo 2>/dev/null || true
+          rm -f /var/jb/Library/LaunchDaemons/com.metacubex.helper.plist /var/jb/Library/LaunchDaemons/com.metacubex.mihomo.plist 2>/dev/null || true
           if [ -x /var/jb/usr/bin/uicache ]; then
             /var/jb/usr/bin/uicache -a 2>/dev/null || true
           fi
@@ -272,13 +270,15 @@ jobs:
           EOF
           cat > pkg/DEBIAN/prerm <<'EOF'
           #!/bin/bash
-          /var/jb/usr/bin/launchctl bootout system/com.metacubex.helper 2>/dev/null || true
-          /var/jb/usr/bin/launchctl bootout system/com.metacubex.mihomo 2>/dev/null || true
+          if [ -f /var/mobile/.config/mihomo/.mihomo.pid ]; then
+            PID=$(cat /var/mobile/.config/mihomo/.mihomo.pid)
+            [ -n "$PID" ] && kill "$PID" 2>/dev/null || true
+          fi
           exit 0
           EOF
           chmod 755 pkg/DEBIAN/postinst pkg/DEBIAN/prerm
           chmod 755 pkg/DEBIAN
-          dpkg-deb -Zgzip -b pkg mihomo-toggle_1.0_iphoneos-arm64e.deb
+          dpkg-deb -Zgzip -b pkg mihomo-toggle_1.1_iphoneos-arm64e.deb
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
