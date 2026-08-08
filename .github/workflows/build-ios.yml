@@ -255,7 +255,7 @@ jobs:
           cat > pkg/DEBIAN/control <<'EOF'
           Package: com.metacubex.mihomo-toggle
           Name: mihomo-toggle
-          Version: 1.1
+          Version: 1.2
           Architecture: iphoneos-arm64e
           Description: One-tap run/stop mihomo with config switching (roothide)
           Maintainer: MetaCubeX
