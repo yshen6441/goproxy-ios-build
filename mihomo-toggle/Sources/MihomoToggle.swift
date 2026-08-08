@@ -106,6 +106,12 @@ func startMihomo(configPath: String) -> pid_t {
         return 0
     }
 
+    let cmdLine = "=== mihomo start ===\ncmd: \(binPath) -d \(CONFIG_DIR) -f \(configPath)\n"
+    if let f = fopen(LOG_PATH, "a") {
+        fputs(cmdLine, f)
+        fclose(f)
+    }
+
     let argv: [UnsafeMutablePointer<CChar>?] = [
         strdup(binPath),
         strdup("-d"),
@@ -170,6 +176,12 @@ struct ContentView: View {
 
             Text("mihomo")
                 .font(.system(size: 34, weight: .bold))
+
+            if !selectedConfig.isEmpty {
+                Text("当前配置: \(selectedConfig)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
 
             Circle()
                 .fill(statusColor)
