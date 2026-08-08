@@ -32,6 +32,7 @@ var CONFIG_DIR: String { resolveConfigDir() }
 var PID_PATH: String { CONFIG_DIR + "/.mihomo.pid" }
 var CFG_PATH: String { CONFIG_DIR + "/.config_path" }
 var LOG_PATH: String { CONFIG_DIR + "/mihomo.log" }
+var TUNNEL_LOG_PATH: String { "/var/mobile/.config/mihomo/tunnel.log" }
 
 func configCwd() -> String {
     let d = resolveConfigDir()
@@ -530,13 +531,24 @@ struct LogView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
             }
-            .navigationTitle("mihomo.log")
+            .navigationTitle("运行日志")
             .navigationBarItems(trailing: Button("完成") {
                 dismiss()
             })
         }
         .onAppear {
-            content = (try? String(contentsOfFile: LOG_PATH, encoding: .utf8)) ?? "(读取失败)"
+            var parts: [String] = []
+            if let mihomo = try? String(contentsOfFile: LOG_PATH, encoding: .utf8) {
+                parts.append("==== mihomo ====\n" + mihomo)
+            } else {
+                parts.append("==== mihomo ====\n(读取失败)")
+            }
+            if let tunnel = try? String(contentsOfFile: TUNNEL_LOG_PATH, encoding: .utf8) {
+                parts.append("==== tunnel ====\n" + tunnel)
+            } else {
+                parts.append("==== tunnel ====\n(无 tunnel 日志，扩展可能未被启动)")
+            }
+            content = parts.joined(separator: "\n\n")
         }
     }
 }
