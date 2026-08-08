@@ -50,31 +50,25 @@ func startMihomo(configPath: String) -> pid_t {
     }
 
     let logFD = open(LOG_PATH, O_WRONLY | O_CREAT | O_APPEND, 0o644)
-    let fileActions = UnsafeMutablePointer<posix_spawn_file_actions_t>.allocate(capacity: 1)
-    posix_spawn_file_actions_init(fileActions)
-    defer {
-        posix_spawn_file_actions_destroy(fileActions)
-        fileActions.deallocate()
-    }
+    var fileActions: posix_spawn_file_actions_t?
+    posix_spawn_file_actions_init(&fileActions)
     if logFD >= 0 {
-        posix_spawn_file_actions_adddup2(fileActions, logFD, STDOUT_FILENO)
-        posix_spawn_file_actions_adddup2(fileActions, logFD, STDERR_FILENO)
-        posix_spawn_file_actions_addclose(fileActions, logFD)
+        posix_spawn_file_actions_adddup2(&fileActions, logFD, STDOUT_FILENO)
+        posix_spawn_file_actions_adddup2(&fileActions, logFD, STDERR_FILENO)
+        posix_spawn_file_actions_addclose(&fileActions, logFD)
     }
 
-    let attr = UnsafeMutablePointer<posix_spawnattr_t>.allocate(capacity: 1)
-    posix_spawnattr_init(attr)
-    defer {
-        posix_spawnattr_destroy(attr)
-        attr.deallocate()
-    }
-    posix_spawnattr_setflags(attr, Int16(POSIX_SPAWN_SETPGROUP))
+    var attr: posix_spawnattr_t?
+    posix_spawnattr_init(&attr)
+    posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETPGROUP))
 
     var pid: pid_t = 0
-    let rc = posix_spawn(&pid, MIHOMO_BIN, fileActions, attr, argv, nil)
+    let rc = posix_spawn(&pid, MIHOMO_BIN, &fileActions, &attr, argv, nil)
     if rc == 0 && pid > 0 {
         try? Data("\(pid)".utf8).write(to: URL(fileURLWithPath: PID_PATH))
     }
+    posix_spawn_file_actions_destroy(&fileActions)
+    posix_spawnattr_destroy(&attr)
     return pid
 }
 
