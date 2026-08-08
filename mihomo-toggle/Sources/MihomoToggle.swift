@@ -11,11 +11,12 @@ let MIHOMO_CANDIDATES = [
 
 func resolveConfigDir() -> String {
     let fm = FileManager.default
-    var candidates: [String] = ["/var/mobile/.config/mihomo"]
+    var candidates: [String] = []
     for root in findJailbreakRoots() {
         candidates.append(root + "/var/mobile/.config/mihomo")
         candidates.append(root + "/.config/mihomo")
     }
+    candidates.append("/var/mobile/.config/mihomo")
     for c in candidates {
         if (try? fm.contentsOfDirectory(atPath: c)) != nil {
             return c
@@ -132,7 +133,18 @@ func startMihomo(configPath: String) -> pid_t {
 
     let relConfig = ".config/mihomo/" + ((configPath as NSString).lastPathComponent)
     let cwdPath = configCwd()
-    let cmdLine = "=== mihomo start ===\nbin: \(binPath)\ncwd: \(cwdPath)\ncmd: \(binPath) -d .config/mihomo -f \(relConfig)\n"
+    let bin = findMihomoBinary()
+    let roots = findJailbreakRoots()
+    let fm = FileManager.default
+    var probeLines = "roots:\n"
+    for r in roots {
+        probeLines += "  \(r)\n"
+        for sub in ["/var/mobile/.config/mihomo", "/.config/mihomo"] {
+            probeLines += "    \(r + sub): \((try? fm.contentsOfDirectory(atPath: r + sub)) != nil ? "OK" : "missing")\n"
+        }
+    }
+    probeLines += "configDir: \(resolveConfigDir())\ncwd: \(cwdPath)\nbin: \(bin)\n"
+    let cmdLine = "=== mihomo start ===\n" + probeLines + "cmd: -d .config/mihomo -f \(relConfig)\n"
     if let f = fopen(LOG_PATH, "a") {
         fputs(cmdLine, f)
         fclose(f)
