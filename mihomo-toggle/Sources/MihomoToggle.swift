@@ -1,11 +1,6 @@
 import SwiftUI
 import Darwin
 
-let CONFIG_DIR = "/var/mobile/.config/mihomo"
-let PID_PATH = CONFIG_DIR + "/.mihomo.pid"
-let CFG_PATH = CONFIG_DIR + "/.config_path"
-let LOG_PATH = CONFIG_DIR + "/mihomo.log"
-
 let MIHOMO_CANDIDATES = [
     "/var/jb/usr/local/bin/mihomo",
     "/var/jb/usr/bin/mihomo",
@@ -13,6 +8,35 @@ let MIHOMO_CANDIDATES = [
     "/usr/bin/mihomo",
     "/opt/procursus/bin/mihomo",
 ]
+
+func resolveConfigDir() -> String {
+    let fm = FileManager.default
+    var candidates: [String] = ["/var/mobile/.config/mihomo"]
+    for root in findJailbreakRoots() {
+        candidates.append(root + "/var/mobile/.config/mihomo")
+        candidates.append(root + "/.config/mihomo")
+    }
+    for c in candidates {
+        if (try? fm.contentsOfDirectory(atPath: c)) != nil {
+            return c
+        }
+    }
+    return "/var/mobile/.config/mihomo"
+}
+
+var CONFIG_DIR: String { resolveConfigDir() }
+var PID_PATH: String { CONFIG_DIR + "/.mihomo.pid" }
+var CFG_PATH: String { CONFIG_DIR + "/.config_path" }
+var LOG_PATH: String { CONFIG_DIR + "/mihomo.log" }
+
+func configCwd() -> String {
+    let d = resolveConfigDir()
+    let suffix = "/.config/mihomo"
+    if d.hasSuffix(suffix) {
+        return String(d.dropLast(suffix.count))
+    }
+    return d
+}
 
 func findJailbreakRoots() -> [String] {
     var roots: [String] = []
@@ -106,7 +130,9 @@ func startMihomo(configPath: String) -> pid_t {
         return 0
     }
 
-    let cmdLine = "=== mihomo start ===\ncmd: \(binPath) -d \(CONFIG_DIR) -f \(configPath)\n"
+    let relConfig = ".config/mihomo/" + ((configPath as NSString).lastPathComponent)
+    let cwdPath = configCwd()
+    let cmdLine = "=== mihomo start ===\nbin: \(binPath)\ncwd: \(cwdPath)\ncmd: \(binPath) -d .config/mihomo -f \(relConfig)\n"
     if let f = fopen(LOG_PATH, "a") {
         fputs(cmdLine, f)
         fclose(f)
@@ -115,9 +141,9 @@ func startMihomo(configPath: String) -> pid_t {
     let argv: [UnsafeMutablePointer<CChar>?] = [
         strdup(binPath),
         strdup("-d"),
-        strdup(CONFIG_DIR),
+        strdup(".config/mihomo"),
         strdup("-f"),
-        strdup(configPath),
+        strdup(relConfig),
         nil
     ]
     defer {
@@ -131,6 +157,9 @@ func startMihomo(configPath: String) -> pid_t {
         posix_spawn_file_actions_adddup2(&fileActions, logFD, STDOUT_FILENO)
         posix_spawn_file_actions_adddup2(&fileActions, logFD, STDERR_FILENO)
         posix_spawn_file_actions_addclose(&fileActions, logFD)
+    }
+    if !cwdPath.isEmpty {
+        posix_spawn_file_actions_addchdir_np(&fileActions, cwdPath)
     }
 
     var attr: posix_spawnattr_t?
