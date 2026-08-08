@@ -2,10 +2,32 @@ import SwiftUI
 import Darwin
 
 let CONFIG_DIR = "/var/mobile/.config/mihomo"
-let MIHOMO_BIN = "/var/jb/usr/local/bin/mihomo"
 let PID_PATH = CONFIG_DIR + "/.mihomo.pid"
 let CFG_PATH = CONFIG_DIR + "/.config_path"
 let LOG_PATH = CONFIG_DIR + "/mihomo.log"
+
+let MIHOMO_CANDIDATES = [
+    "/var/jb/usr/local/bin/mihomo",
+    "/var/jb/usr/bin/mihomo",
+    "/usr/local/bin/mihomo",
+    "/usr/bin/mihomo",
+    "/opt/procursus/bin/mihomo",
+]
+
+func findMihomoBinary() -> String {
+    for p in MIHOMO_CANDIDATES {
+        if FileManager.default.isExecutableFile(atPath: p) {
+            return p
+        }
+    }
+    return ""
+}
+
+func probeCandidates() -> String {
+    MIHOMO_CANDIDATES.map { p in
+        "\(p): \(FileManager.default.isExecutableFile(atPath: p) ? "OK" : "missing")"
+    }.joined(separator: "\n")
+}
 
 func readPid() -> pid_t {
     guard let s = try? String(contentsOfFile: PID_PATH, encoding: .utf8) else { return 0 }
@@ -39,8 +61,14 @@ func startMihomo(configPath: String) -> pid_t {
     stopMihomo()
     usleep(200_000)
 
+    let binPath = findMihomoBinary()
+    guard !binPath.isEmpty else {
+        lastSpawnError = "未找到 mihomo 二进制。探测结果:\n" + probeCandidates()
+        return 0
+    }
+
     let argv: [UnsafeMutablePointer<CChar>?] = [
-        strdup(MIHOMO_BIN),
+        strdup(binPath),
         strdup("-d"),
         strdup(CONFIG_DIR),
         strdup("-f"),
@@ -66,7 +94,7 @@ func startMihomo(configPath: String) -> pid_t {
 
     var pid: pid_t = 0
     errno = 0
-    let rc = posix_spawn(&pid, MIHOMO_BIN, &fileActions, &attr, argv, nil)
+    let rc = posix_spawn(&pid, binPath, &fileActions, &attr, argv, nil)
     if rc == 0 && pid > 0 {
         try? Data("\(pid)".utf8).write(to: URL(fileURLWithPath: PID_PATH))
         return pid
