@@ -54,7 +54,6 @@ var CONFIG_DIR: String { resolveConfigDir() }
 var PID_PATH: String { CONFIG_DIR + "/.mihomo.pid" }
 var CFG_PATH: String { CONFIG_DIR + "/.config_path" }
 var LOG_PATH: String { CONFIG_DIR + "/mihomo.log" }
-var TUNNEL_LOG_PATH: String { CONFIG_DIR + "/tunnel.log" }
 
 func configCwd() -> String {
     let d = resolveConfigDir()
@@ -276,7 +275,7 @@ struct ContentView: View {
     @State private var selectedConfig = ""
     @State private var configs: [String] = []
     @State private var lastError = ""
-    @State private var showLog = false
+    @State private var showEdit = false
     @State private var vpnStatus: NEVPNStatus = .invalid
     @State private var masterDesired = false
 
@@ -390,29 +389,51 @@ struct ContentView: View {
                         .foregroundColor(neonCyan.opacity(0.8))
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Picker("配置", selection: $selectedConfig) {
-                        ForEach(configs, id: \.self) { name in
-                            Text(name).tag(name)
+                    HStack(spacing: 10) {
+                        Picker("配置", selection: $selectedConfig) {
+                            ForEach(configs, id: \.self) { name in
+                                Text(name).tag(name)
+                            }
                         }
+                        .pickerStyle(MenuPickerStyle())
+                        .font(.system(size: 13, design: .monospaced))
+                        .tint(neonCyan)
+                        .disabled(masterDesired)
+                        .onChange(of: selectedConfig) { newValue in
+                            applyConfig(newValue)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.white.opacity(0.05))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                                )
+                        )
+
+                        Button {
+                            showEdit = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(neonCyan)
+                                .frame(width: 40, height: 38)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(neonCyan.opacity(0.1))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(neonCyan.opacity(0.5), lineWidth: 1)
+                                        )
+                                )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(selectedConfig.isEmpty)
                     }
-                    .pickerStyle(MenuPickerStyle())
-                    .font(.system(size: 13, design: .monospaced))
-                    .tint(neonCyan)
-                    .disabled(masterDesired)
-                    .onChange(of: selectedConfig) { newValue in
-                        applyConfig(newValue)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
                     .frame(maxWidth: 300)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.white.opacity(0.05))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                            )
-                    )
 
                     HStack(spacing: 10) {
                         Text("MIHOMO")
@@ -435,30 +456,6 @@ struct ContentView: View {
                     Divider()
                         .background(Color.white.opacity(0.15))
                         .padding(.vertical, 2)
-
-                    Button {
-                        showLog = true
-                    } label: {
-                        HStack {
-                            Text("$ 查看运行日志")
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10))
-                        }
-                        .foregroundColor(neonGreen)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(neonGreen.opacity(0.08))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(neonGreen.opacity(0.4), lineWidth: 1)
-                                )
-                        )
-                    }
-                    .buttonStyle(PlainButtonStyle())
 
                     Text("DIR: \(CONFIG_DIR)")
                         .font(.system(size: 9, design: .monospaced))
@@ -490,8 +487,17 @@ struct ContentView: View {
                 self.refreshVpnStatus()
             }
         }
-        .sheet(isPresented: $showLog) {
-            LogView()
+        .sheet(isPresented: $showEdit) {
+            ConfigEditorView(fileName: selectedConfig) { saved in
+                if saved {
+                    lastError = "配置已保存"
+                    if status == "running" {
+                        restart()
+                    } else {
+                        refreshStatus()
+                    }
+                }
+            }
         }
     }
 
@@ -681,31 +687,14 @@ struct ContentView: View {
     }
 }
 
-func readTail(_ path: String, maxBytes: Int = 64 * 1024) -> String? {
-    guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-          let size = attrs[.size] as? NSNumber else { return nil }
-    let sz = size.int64Value
-    if sz <= Int64(maxBytes) {
-        return try? String(contentsOfFile: path, encoding: .utf8)
-    }
-    guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
-    defer { try? fh.close() }
-    fh.seek(toFileOffset: UInt64(sz - Int64(maxBytes)))
-    let data = fh.readDataToEndOfFile()
-    var s = String(data: data, encoding: .utf8)
-    if s == nil, let latin = String(data: data, encoding: .isoLatin1) { s = latin }
-    return s.map { "(日志过长，仅显示末尾)\n" + $0 }
-}
-
-func clearLogFiles() {
-    for p in [LOG_PATH, TUNNEL_LOG_PATH] {
-        FileManager.default.createFile(atPath: p, contents: nil)
-    }
-}
-
-struct LogView: View {
+struct ConfigEditorView: View {
     @Environment(\.dismiss) private var dismiss
+    let fileName: String
+    var onSaved: (Bool) -> Void
+
     @State private var content = ""
+    @State private var original = ""
+    @State private var saveError = ""
 
     var body: some View {
         ZStack {
@@ -718,14 +707,14 @@ struct LogView: View {
                     Circle().fill(Color.orange.opacity(0.9)).frame(width: 10, height: 10)
                     Circle().fill(Color.green.opacity(0.9)).frame(width: 10, height: 10)
                     Spacer()
-                    Text("mihomo — terminal")
+                    Text("vim — \(fileName)")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundColor(.white.opacity(0.5))
                     Spacer()
                     Button {
                         dismiss()
                     } label: {
-                        Text("退出")
+                        Text("取消")
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
                             .foregroundColor(.white.opacity(0.7))
                     }
@@ -734,47 +723,53 @@ struct LogView: View {
                 .padding(.vertical, 10)
                 .background(Color.white.opacity(0.06))
 
-                ScrollView {
-                    Text(content.isEmpty ? ">>> (终端空闲)" : content)
+                TextEditor(text: $content)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(neonGreen)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .background(Color(red: 0.01, green: 0.02, blue: 0.04))
+                    .padding(8)
+
+                if !saveError.isEmpty {
+                    Text("⚠ \(saveError)")
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(terminalGreen)
+                        .foregroundColor(.red.opacity(0.9))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding(12)
+                        .padding(.horizontal, 14)
                 }
 
                 HStack(spacing: 12) {
-                    Button {
-                        clearLogFiles()
-                        content = ""
-                    } label: {
-                        Label("清空", systemImage: "trash")
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.red.opacity(0.9))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.red.opacity(0.12))
-                            )
-                    }
-                    Button {
-                        reload()
-                    } label: {
-                        Label("刷新", systemImage: "arrow.clockwise")
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundColor(terminalGreen)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(terminalGreen.opacity(0.12))
-                            )
-                    }
-                    Spacer()
-                    Text("$ tail -c 64K log")
+                    Text("\(fileName) — \(content.count) 字符")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.white.opacity(0.3))
+                    Spacer()
+                    Button {
+                        content = original
+                    } label: {
+                        Label("还原", systemImage: "arrow.uturn.backward")
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.orange)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.orange.opacity(0.12))
+                            )
+                    }
+                    Button {
+                        save()
+                    } label: {
+                        Label("保存", systemImage: "checkmark")
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundColor(neonGreen)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(neonGreen.opacity(0.15))
+                            )
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -782,24 +777,36 @@ struct LogView: View {
             }
         }
         .onAppear {
-            reload()
+            load()
         }
     }
 
-    private var terminalGreen: Color { Color(red: 0.2, green: 1.0, blue: 0.5) }
+    private var neonGreen: Color { Color(red: 0.2, green: 1.0, blue: 0.5) }
 
-    private func reload() {
-        var parts: [String] = []
-        if let mihomo = readTail(LOG_PATH) {
-            parts.append("==== mihomo ====\n" + mihomo)
-        } else {
-            parts.append("==== mihomo ====\n(读取失败)")
+    private var filePath: String {
+        if fileName.isEmpty { return "" }
+        return CONFIG_DIR + "/" + fileName
+    }
+
+    private func load() {
+        original = (try? String(contentsOfFile: filePath, encoding: .utf8)) ?? ""
+        content = original
+    }
+
+    private func save() {
+        saveError = ""
+        guard !filePath.isEmpty else {
+            saveError = "未选择配置文件"
+            return
         }
-        if let tunnel = readTail(TUNNEL_LOG_PATH) {
-            parts.append("\n==== tunnel ====\n" + tunnel)
-        } else {
-            parts.append("\n==== tunnel ====\n(无 tunnel 日志，扩展可能未被启动)")
+        do {
+            try Data(content.utf8).write(to: URL(fileURLWithPath: filePath))
+            original = content
+            onSaved(true)
+            dismiss()
+        } catch {
+            saveError = "保存失败: \(error.localizedDescription)"
+            onSaved(false)
         }
-        content = parts.joined(separator: "\n")
     }
 }
