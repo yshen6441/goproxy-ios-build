@@ -218,98 +218,6 @@ struct MihomoToggleApp: App {
     }
 }
 
-struct ProxyGroupInfo: Identifiable {
-    let id = UUID()
-    let name: String
-    let now: String
-    let all: [String]
-}
-
-func controllerEndpoint(configDir: String) -> (port: String, secret: String) {
-    let cfg = CFG_PATH
-    guard let content = try? String(contentsOfFile: cfg, encoding: .utf8) else {
-        return ("9090", "")
-    }
-    let current = (content as NSString).lastPathComponent
-    guard let yaml = try? String(contentsOfFile: configDir + "/" + current, encoding: .utf8) else {
-        return ("9090", "")
-    }
-    var port = "9090"
-    var secret = ""
-    for line in yaml.components(separatedBy: .newlines) {
-        let t = line.trimmingCharacters(in: .whitespaces)
-        if t.hasPrefix("external-controller:") {
-            let v = t.replacingOccurrences(of: "external-controller:", with: "").trimmingCharacters(in: .whitespaces)
-            if let last = v.split(separator: ":").last {
-                port = String(last)
-            }
-        } else if t.hasPrefix("secret:") {
-            let v = t.replacingOccurrences(of: "secret:", with: "").trimmingCharacters(in: .whitespaces)
-                .replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "'", with: "")
-            if !v.isEmpty {
-                secret = v
-            }
-        }
-    }
-    return (port, secret)
-}
-
-let controllerSession: URLSession = {
-    let config = URLSessionConfiguration.ephemeral
-    config.connectionProxyDictionary = [:]
-    config.timeoutIntervalForRequest = 4
-    return URLSession(configuration: config)
-}()
-
-func fetchProxyGroups(configDir: String) -> [ProxyGroupInfo] {
-    let (port, secret) = controllerEndpoint(configDir: configDir)
-    let url = URL(string: "http://127.0.0.1:\(port)/proxies")!
-    var req = URLRequest(url: url)
-    req.timeoutInterval = 3
-    if !secret.isEmpty {
-        req.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
-    }
-    let sem = DispatchSemaphore(value: 0)
-    var result: [ProxyGroupInfo] = []
-    controllerSession.dataTask(with: req) { data, _, _ in
-        defer { sem.signal() }
-        guard let data = data,
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let proxies = obj["proxies"] as? [String: Any] else { return }
-        for (name, info) in proxies {
-            guard let d = info as? [String: Any],
-                  let type = d["type"] as? String, type == "Selector",
-                  let all = d["all"] as? [String] else { continue }
-            let now = (d["now"] as? String) ?? ""
-            result.append(ProxyGroupInfo(name: name, now: now, all: all))
-        }
-    }.resume()
-    _ = sem.wait(timeout: .now() + 4)
-    return result.sorted { $0.name < $1.name }
-}
-
-func selectProxyNode(configDir: String, group: String, node: String) -> Bool {
-    let (port, secret) = controllerEndpoint(configDir: configDir)
-    guard let encoded = group.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return false }
-    let url = URL(string: "http://127.0.0.1:\(port)/proxies/\(encoded)")!
-    var req = URLRequest(url: url)
-    req.httpMethod = "PATCH"
-    req.timeoutInterval = 3
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    if !secret.isEmpty {
-        req.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
-    }
-    req.httpBody = try? JSONSerialization.data(withJSONObject: ["name": node])
-    let sem = DispatchSemaphore(value: 0)
-    var ok = false
-    controllerSession.dataTask(with: req) { _, resp, _ in
-        defer { sem.signal() }
-        ok = (resp as? HTTPURLResponse)?.statusCode == 204
-    }.resume()
-    _ = sem.wait(timeout: .now() + 4)
-    return ok
-}
-
 var tunnelManager: NETunnelProviderManager?
 
 func loadTunnelManager(completion: @escaping (NETunnelProviderManager?) -> Void) {
@@ -346,8 +254,6 @@ struct ContentView: View {
     @State private var configs: [String] = []
     @State private var lastError = ""
     @State private var showLog = false
-    @State private var proxyGroups: [ProxyGroupInfo] = []
-    @State private var wasRunning = false
     @State private var vpnStatus: NEVPNStatus = .invalid
     @State private var vpnBusy = false
 
@@ -406,43 +312,6 @@ struct ContentView: View {
                         .foregroundColor(.red)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
-                }
-
-                if status == "running" {
-                    VStack(spacing: 8) {
-                        Text("节点切换")
-                            .font(.headline)
-
-                        ForEach(proxyGroups) { group in
-                            HStack {
-                                Text(group.name)
-                                    .font(.footnote)
-                                Spacer()
-                                Menu {
-                                    ForEach(group.all, id: \.self) { node in
-                                        Button(node) {
-                                            switchNode(group: group.name, node: node)
-                                        }
-                                    }
-                                } label: {
-                                    Text(group.now)
-                                        .font(.footnote)
-                                        .foregroundColor(.blue)
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 4)
-                            .background(Color(.systemGray6))
-                            .cornerRadius(8)
-                        }
-
-                        if proxyGroups.isEmpty {
-                            Text("未获取到节点，mihomo 可能未运行或 API 端口不符")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.horizontal)
                 }
 
                 Divider()
@@ -632,13 +501,6 @@ struct ContentView: View {
     private func refreshStatus() {
         let running = processAlive(readPid())
         status = running ? "running" : "stopped"
-        if running && !wasRunning {
-            loadProxyGroupsInBackground()
-        }
-        if !running {
-            proxyGroups = []
-        }
-        wasRunning = running
         refreshVpnStatus()
     }
 
@@ -686,31 +548,6 @@ struct ContentView: View {
             vpnStatus = m.connection.status
         } else {
             vpnStatus = NEVPNManager.shared().connection.status
-        }
-    }
-
-    private func loadProxyGroupsInBackground() {
-        DispatchQueue.global().async {
-            var groups: [ProxyGroupInfo] = []
-            for _ in 0..<5 {
-                groups = fetchProxyGroups(configDir: CONFIG_DIR)
-                if !groups.isEmpty { break }
-                usleep(1_000_000)
-            }
-            DispatchQueue.main.async {
-                if processAlive(readPid()) {
-                    self.proxyGroups = groups
-                }
-            }
-        }
-    }
-
-    private func switchNode(group: String, node: String) {
-        if selectProxyNode(configDir: CONFIG_DIR, group: group, node: node) {
-            loadProxyGroupsInBackground()
-            lastError = "已切换 \(group) -> \(node)"
-        } else {
-            lastError = "节点切换失败（API 未响应）"
         }
     }
 }
