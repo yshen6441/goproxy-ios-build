@@ -32,6 +32,8 @@ func stopMihomo() {
     try? FileManager.default.removeItem(atPath: PID_PATH)
 }
 
+var lastSpawnError = ""
+
 @discardableResult
 func startMihomo(configPath: String) -> pid_t {
     stopMihomo()
@@ -63,13 +65,17 @@ func startMihomo(configPath: String) -> pid_t {
     posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETPGROUP))
 
     var pid: pid_t = 0
+    errno = 0
     let rc = posix_spawn(&pid, MIHOMO_BIN, &fileActions, &attr, argv, nil)
     if rc == 0 && pid > 0 {
         try? Data("\(pid)".utf8).write(to: URL(fileURLWithPath: PID_PATH))
+        return pid
     }
+    let errDesc = rc != 0 ? String(cString: strerror(rc)) : (errno != 0 ? String(cString: strerror(errno)) : "unknown error")
+    lastSpawnError = "posix_spawn 失败: \(errDesc)"
     posix_spawn_file_actions_destroy(&fileActions)
     posix_spawnattr_destroy(&attr)
-    return pid
+    return 0
 }
 
 @main
@@ -243,7 +249,7 @@ struct ContentView: View {
             if pid > 0 {
                 lastError = "mihomo 已启动 (pid \(pid))"
             } else {
-                lastError = "启动失败"
+                lastError = lastSpawnError.isEmpty ? "启动失败" : lastSpawnError
             }
             refreshStatus()
         }
@@ -257,7 +263,7 @@ struct ContentView: View {
         if pid > 0 {
             lastError = "mihomo 已用新配置重启 (pid \(pid))"
         } else {
-            lastError = "重启失败"
+            lastError = lastSpawnError.isEmpty ? "重启失败" : lastSpawnError
         }
         refreshStatus()
         busy = false
