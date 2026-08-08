@@ -282,112 +282,203 @@ struct ContentView: View {
 
     private let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
-    private var masterOnBinding: Binding<Bool> {
-        Binding(
-            get: { self.masterDesired },
-            set: { newValue in
-                self.masterDesired = newValue
-                if newValue {
-                    self.toggleMasterOn()
-                } else {
-                    self.toggleMasterOff()
-                }
-            }
-        )
-    }
-
     var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
+        ZStack {
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color(red: 0.02, green: 0.04, blue: 0.09),
+                    Color(red: 0.05, green: 0.08, blue: 0.16),
+                    Color(red: 0.02, green: 0.06, blue: 0.12)
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
-            Text("mihomo")
-                .font(.system(size: 34, weight: .bold))
+            VStack(spacing: 22) {
+                Spacer()
 
-            if !selectedConfig.isEmpty {
-                Text("当前配置: \(selectedConfig)")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-
-            ZStack {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 120, height: 120)
-                if busy {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                } else {
-                    Text(statusText)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-            }
-
-            HStack(spacing: 14) {
-                Text("总开关")
-                    .font(.system(size: 18, weight: .semibold))
-                Toggle("", isOn: masterOnBinding)
-                    .labelsHidden()
-                    .scaleEffect(1.4)
-                    .frame(width: 80)
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 12)
-            .background(Color(.systemGray6))
-            .cornerRadius(12)
-
-            if !lastError.isEmpty {
-                Text(lastError)
-                    .font(.footnote)
-                    .foregroundColor(.red)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-
-            VStack(spacing: 12) {
-                Text("配置切换")
-                    .font(.headline)
-
-                Picker("配置", selection: $selectedConfig) {
-                    ForEach(configs, id: \.self) { name in
-                        Text(name).tag(name)
+                VStack(spacing: 6) {
+                    Text("MIHOMO")
+                        .font(.system(size: 28, weight: .bold, design: .monospaced))
+                        .tracking(6)
+                        .foregroundColor(neonCyan)
+                        .shadow(color: neonCyan.opacity(0.6), radius: 8)
+                    if !selectedConfig.isEmpty {
+                        Text("> 当前配置: \(selectedConfig)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(neonCyan.opacity(0.7))
                     }
                 }
-                .pickerStyle(MenuPickerStyle())
-                .frame(maxWidth: 240)
-                .disabled(masterDesired)
-                .onChange(of: selectedConfig) { newValue in
-                    applyConfig(newValue)
-                }
 
-                HStack(spacing: 8) {
-                    Text("mihomo")
+                ZStack {
                     Circle()
-                        .fill(status == "running" ? Color.green : Color.gray)
-                        .frame(width: 8, height: 8)
-                    Spacer()
-                    Text("VPN")
+                        .stroke(Color.white.opacity(0.08), lineWidth: 10)
+                        .frame(width: 150, height: 150)
                     Circle()
-                        .fill(vpnColor)
-                        .frame(width: 8, height: 8)
+                        .trim(from: 0, to: ringProgress)
+                        .stroke(
+                            AngularGradient(
+                                gradient: Gradient(colors: [glowColor.opacity(0.3), glowColor, Color.white.opacity(0.9)]),
+                                center: .center
+                            ),
+                            style: StrokeStyle(lineWidth: 10, lineCap: .round)
+                        )
+                        .frame(width: 150, height: 150)
+                        .rotationEffect(.degrees(-90))
+                        .shadow(color: glowColor.opacity(0.8), radius: 12)
+                    VStack(spacing: 4) {
+                        if busy {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: glowColor))
+                                .scaleEffect(1.3)
+                        } else {
+                            Text(statusText)
+                                .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                                .foregroundColor(statusTextColor)
+                                .shadow(color: glowColor.opacity(0.6), radius: 6)
+                            Text(statusCode)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.4))
+                        }
+                    }
                 }
-                .font(.caption)
-                .foregroundColor(.secondary)
 
-                Divider()
-                    .padding(.vertical, 4)
-
-                Button("查看运行日志") {
-                    showLog = true
+                Button(action: {
+                    masterDesired.toggle()
+                    if masterDesired {
+                        toggleMasterOn()
+                    } else {
+                        toggleMasterOff()
+                    }
+                }) {
+                    HStack(spacing: 14) {
+                        Text("总开关")
+                            .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white)
+                        Spacer()
+                        Text(masterDesired ? "ON" : "OFF")
+                            .font(.system(size: 15, weight: .bold, design: .monospaced))
+                            .foregroundColor(masterDesired ? neonGreen : Color.white.opacity(0.5))
+                            .shadow(color: (masterDesired ? neonGreen : Color.clear).opacity(0.7), radius: 6)
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color.white.opacity(0.05))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(masterDesired ? neonGreen.opacity(0.7) : Color.white.opacity(0.12), lineWidth: 1)
+                            )
+                    )
                 }
-                .font(.footnote)
+                .buttonStyle(PlainButtonStyle())
+                .padding(.horizontal, 28)
 
-                Text("目录: \(CONFIG_DIR)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if !lastError.isEmpty {
+                    Text("⚠ \(lastError)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.red.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                VStack(spacing: 14) {
+                    Text("// 配置切换")
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundColor(neonCyan.opacity(0.8))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Picker("配置", selection: $selectedConfig) {
+                        ForEach(configs, id: \.self) { name in
+                            Text(name).tag(name)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .font(.system(size: 13, design: .monospaced))
+                    .tint(neonCyan)
+                    .disabled(masterDesired)
+                    .onChange(of: selectedConfig) { newValue in
+                        applyConfig(newValue)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: 300)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.white.opacity(0.05))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                            )
+                    )
+
+                    HStack(spacing: 10) {
+                        Text("MIHOMO")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(status == "running" ? neonGreen : .white.opacity(0.35))
+                        Circle()
+                            .fill(status == "running" ? neonGreen : Color.gray)
+                            .frame(width: 7, height: 7)
+                            .shadow(color: status == "running" ? neonGreen.opacity(0.9) : .clear, radius: 4)
+                        Spacer()
+                        Text("VPN")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(vpnUp ? neonGreen : .white.opacity(0.35))
+                        Circle()
+                            .fill(vpnUp ? neonGreen : Color.gray)
+                            .frame(width: 7, height: 7)
+                            .shadow(color: vpnUp ? neonGreen.opacity(0.9) : .clear, radius: 4)
+                    }
+
+                    Divider()
+                        .background(Color.white.opacity(0.15))
+                        .padding(.vertical, 2)
+
+                    Button {
+                        showLog = true
+                    } label: {
+                        HStack {
+                            Text("$ 查看运行日志")
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundColor(neonGreen)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(neonGreen.opacity(0.08))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(neonGreen.opacity(0.4), lineWidth: 1)
+                                )
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    Text("DIR: \(CONFIG_DIR)")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.3))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 2)
+                }
+                .padding(18)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.white.opacity(0.04))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        )
+                )
+                .padding(.horizontal, 22)
+
+                Spacer()
             }
-
-            Spacer()
         }
         .onReceive(timer) { _ in
             refreshStatus()
@@ -404,11 +495,39 @@ struct ContentView: View {
         }
     }
 
-    private var statusColor: Color {
+    private var neonCyan: Color { Color(red: 0.0, green: 0.85, blue: 0.95) }
+    private var neonGreen: Color { Color(red: 0.1, green: 0.95, blue: 0.55) }
+
+    private var glowColor: Color {
         if status == "running" {
-            return vpnStatus == .connected ? .green : .orange
+            return vpnStatus == .connected ? neonGreen : Color(red: 1.0, green: 0.6, blue: 0.1)
         }
-        return status == "stopped" ? .gray : .orange
+        return status == "stopped" ? Color.white.opacity(0.3) : Color(red: 1.0, green: 0.6, blue: 0.1)
+    }
+
+    private var ringProgress: CGFloat {
+        if status == "running" {
+            return vpnStatus == .connected ? 1.0 : 0.7
+        }
+        return status == "stopped" ? 0.0 : 0.7
+    }
+
+    private var statusTextColor: Color {
+        if status == "running" {
+            return vpnStatus == .connected ? neonGreen : Color(red: 1.0, green: 0.6, blue: 0.1)
+        }
+        return status == "stopped" ? .white.opacity(0.5) : Color(red: 1.0, green: 0.6, blue: 0.1)
+    }
+
+    private var statusCode: String {
+        if status == "running" {
+            return vpnStatus == .connected ? "[ONLINE]" : "[CONNECTING]"
+        }
+        return status == "stopped" ? "[OFFLINE]" : "[UNKNOWN]"
+    }
+
+    private var vpnUp: Bool {
+        vpnStatus == .connected || vpnStatus == .connecting || vpnStatus == .reasserting
     }
 
     private var statusText: String {
@@ -416,14 +535,6 @@ struct ContentView: View {
             return vpnStatus == .connected ? "已连接" : "连接中"
         }
         return status == "stopped" ? "已停止" : "未知"
-    }
-
-    private var vpnColor: Color {
-        switch vpnStatus {
-        case .connected: return .green
-        case .connecting, .disconnecting, .reasserting: return .orange
-        default: return .gray
-        }
     }
 
     private func loadConfigs() {
@@ -586,36 +697,109 @@ func readTail(_ path: String, maxBytes: Int = 64 * 1024) -> String? {
     return s.map { "(日志过长，仅显示末尾)\n" + $0 }
 }
 
+func clearLogFiles() {
+    for p in [LOG_PATH, TUNNEL_LOG_PATH] {
+        FileManager.default.createFile(atPath: p, contents: nil)
+    }
+}
+
 struct LogView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var content = ""
 
     var body: some View {
-        NavigationView {
-            ScrollView {
-                Text(content.isEmpty ? "(日志为空)" : content)
-                    .font(.system(.footnote, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
+        ZStack {
+            Color(red: 0.01, green: 0.02, blue: 0.04)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Circle().fill(Color.red.opacity(0.9)).frame(width: 10, height: 10)
+                    Circle().fill(Color.orange.opacity(0.9)).frame(width: 10, height: 10)
+                    Circle().fill(Color.green.opacity(0.9)).frame(width: 10, height: 10)
+                    Spacer()
+                    Text("mihomo — terminal")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.5))
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("退出")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color.white.opacity(0.06))
+
+                ScrollView {
+                    Text(content.isEmpty ? ">>> (终端空闲)" : content)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(terminalGreen)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .padding(12)
+                }
+
+                HStack(spacing: 12) {
+                    Button {
+                        clearLogFiles()
+                        content = ""
+                    } label: {
+                        Label("清空", systemImage: "trash")
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.red.opacity(0.9))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.red.opacity(0.12))
+                            )
+                    }
+                    Button {
+                        reload()
+                    } label: {
+                        Label("刷新", systemImage: "arrow.clockwise")
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundColor(terminalGreen)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(terminalGreen.opacity(0.12))
+                            )
+                    }
+                    Spacer()
+                    Text("$ tail -c 64K log")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.3))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color.white.opacity(0.04))
             }
-            .navigationTitle("运行日志")
-            .navigationBarItems(trailing: Button("完成") {
-                dismiss()
-            })
         }
         .onAppear {
-            var parts: [String] = []
-            if let mihomo = readTail(LOG_PATH) {
-                parts.append("==== mihomo ====\n" + mihomo)
-            } else {
-                parts.append("==== mihomo ====\n(读取失败)")
-            }
-            if let tunnel = readTail(TUNNEL_LOG_PATH) {
-                parts.append("==== tunnel ====\n" + tunnel)
-            } else {
-                parts.append("==== tunnel ====\n(无 tunnel 日志，扩展可能未被启动)")
-            }
-            content = parts.joined(separator: "\n\n")
+            reload()
         }
+    }
+
+    private var terminalGreen: Color { Color(red: 0.2, green: 1.0, blue: 0.5) }
+
+    private func reload() {
+        var parts: [String] = []
+        if let mihomo = readTail(LOG_PATH) {
+            parts.append("==== mihomo ====\n" + mihomo)
+        } else {
+            parts.append("==== mihomo ====\n(读取失败)")
+        }
+        if let tunnel = readTail(TUNNEL_LOG_PATH) {
+            parts.append("\n==== tunnel ====\n" + tunnel)
+        } else {
+            parts.append("\n==== tunnel ====\n(无 tunnel 日志，扩展可能未被启动)")
+        }
+        content = parts.joined(separator: "\n")
     }
 }
