@@ -302,7 +302,7 @@ jobs:
           cat > pkg/DEBIAN/control <<'EOF'
           Package: com.metacubex.mihomo-toggle
           Name: mihomo-toggle
-          Version: 1.13
+          Version: 1.14
           Architecture: iphoneos-arm64
           Description: One-tap run/stop mihomo with config switching (rootless)
           Maintainer: MetaCubeX
@@ -329,7 +329,7 @@ jobs:
           EOF
           chmod 755 pkg/DEBIAN/postinst pkg/DEBIAN/prerm
           chmod 755 pkg/DEBIAN
-          dpkg-deb -Zgzip -b pkg mihomo-toggle_1.13_iphoneos-arm64-rootless.deb
+          dpkg-deb -Zgzip -b pkg mihomo-toggle_1.14_iphoneos-arm64-rootless.deb
 
       - name: Package ipa (iphoneos-arm64, unsigned)
         working-directory: buildrepo/mihomo-toggle
@@ -337,8 +337,8 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -r MihomoToggle.app Payload/
-          zip -qry MihomoToggle_1.13_iphoneos-arm64-rootless.ipa Payload
-          ls -la MihomoToggle_1.13_iphoneos-arm64-rootless.ipa
+          zip -qry MihomoToggle_1.14_iphoneos-arm64-rootless.ipa Payload
+          ls -la MihomoToggle_1.14_iphoneos-arm64-rootless.ipa
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

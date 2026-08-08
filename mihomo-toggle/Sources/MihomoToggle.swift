@@ -286,7 +286,7 @@ struct ContentView: View {
             LinearGradient(
                 gradient: Gradient(colors: [
                     Color(red: 0.02, green: 0.04, blue: 0.09),
-                    Color(red: 0.05, green: 0.08, blue: 0.16),
+                    Color(red: 0.09, green: 0.13, blue: 0.20),
                     Color(red: 0.02, green: 0.06, blue: 0.12)
                 ]),
                 startPoint: .top,
@@ -310,70 +310,53 @@ struct ContentView: View {
                     }
                 }
 
-                ZStack {
-                    Circle()
-                        .stroke(Color.white.opacity(0.08), lineWidth: 10)
-                        .frame(width: 150, height: 150)
-                    Circle()
-                        .trim(from: 0, to: ringProgress)
-                        .stroke(
-                            AngularGradient(
-                                gradient: Gradient(colors: [glowColor.opacity(0.3), glowColor, Color.white.opacity(0.9)]),
-                                center: .center
-                            ),
-                            style: StrokeStyle(lineWidth: 10, lineCap: .round)
-                        )
-                        .frame(width: 150, height: 150)
-                        .rotationEffect(.degrees(-90))
-                        .shadow(color: glowColor.opacity(0.8), radius: 12)
-                    VStack(spacing: 4) {
-                        if busy {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: glowColor))
-                                .scaleEffect(1.3)
-                        } else {
-                            Text(statusText)
-                                .font(.system(size: 18, weight: .semibold, design: .monospaced))
-                                .foregroundColor(statusTextColor)
-                                .shadow(color: glowColor.opacity(0.6), radius: 6)
-                            Text(statusCode)
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.4))
-                        }
-                    }
-                }
-
-                Button(action: {
+                Button {
                     masterDesired.toggle()
                     if masterDesired {
                         toggleMasterOn()
                     } else {
                         toggleMasterOff()
                     }
-                }) {
-                    HStack(spacing: 14) {
-                        Text("总开关")
-                            .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.white)
-                        Spacer()
-                        Text(masterDesired ? "ON" : "OFF")
-                            .font(.system(size: 15, weight: .bold, design: .monospaced))
-                            .foregroundColor(masterDesired ? neonGreen : Color.white.opacity(0.5))
-                            .shadow(color: (masterDesired ? neonGreen : Color.clear).opacity(0.7), radius: 6)
-                    }
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color.white.opacity(0.05))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .stroke(masterDesired ? neonGreen.opacity(0.7) : Color.white.opacity(0.12), lineWidth: 1)
+                } label: {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.white.opacity(0.08), lineWidth: 10)
+                            .frame(width: 150, height: 150)
+                        Circle()
+                            .trim(from: 0, to: ringProgress)
+                            .stroke(
+                                AngularGradient(
+                                    gradient: Gradient(colors: [glowColor.opacity(0.3), glowColor, Color.white.opacity(0.9)]),
+                                    center: .center
+                                ),
+                                style: StrokeStyle(lineWidth: 10, lineCap: .round)
                             )
-                    )
+                            .frame(width: 150, height: 150)
+                            .rotationEffect(.degrees(-90))
+                            .shadow(color: glowColor.opacity(0.8), radius: 12)
+                        VStack(spacing: 4) {
+                            if busy {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: glowColor))
+                                    .scaleEffect(1.3)
+                            } else {
+                                Text(statusText)
+                                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(statusTextColor)
+                                    .shadow(color: glowColor.opacity(0.6), radius: 6)
+                                Text(statusCode)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.4))
+                                Text(masterDesired ? "TAP TO STOP" : "TAP TO START")
+                                    .font(.system(size: 8, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.25))
+                                    .padding(.top, 2)
+                            }
+                        }
+                    }
                 }
                 .buttonStyle(PlainButtonStyle())
-                .padding(.horizontal, 28)
+                .disabled(busy)
 
                 if !lastError.isEmpty {
                     Text("⚠ \(lastError)")
