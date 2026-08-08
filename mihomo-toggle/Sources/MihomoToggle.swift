@@ -353,20 +353,7 @@ struct ContentView: View {
                 .buttonStyle(PlainButtonStyle())
                 .disabled(busy)
 
-                if !lastError.isEmpty {
-                    Text("⚠ \(lastError)")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.red.opacity(0.9))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-
                 VStack(spacing: 14) {
-                    Text("// 配置切换")
-                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                        .foregroundColor(neonCyan.opacity(0.9))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
                     HStack(spacing: 10) {
                         Picker("配置", selection: $selectedConfig) {
                             ForEach(configs, id: \.self) { name in
