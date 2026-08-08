@@ -254,6 +254,13 @@ func controllerEndpoint(configDir: String) -> (port: String, secret: String) {
     return (port, secret)
 }
 
+let controllerSession: URLSession = {
+    let config = URLSessionConfiguration.ephemeral
+    config.connectionProxyDictionary = [:]
+    config.timeoutIntervalForRequest = 4
+    return URLSession(configuration: config)
+}()
+
 func fetchProxyGroups(configDir: String) -> [ProxyGroupInfo] {
     let (port, secret) = controllerEndpoint(configDir: configDir)
     let url = URL(string: "http://127.0.0.1:\(port)/proxies")!
@@ -264,7 +271,7 @@ func fetchProxyGroups(configDir: String) -> [ProxyGroupInfo] {
     }
     let sem = DispatchSemaphore(value: 0)
     var result: [ProxyGroupInfo] = []
-    URLSession.shared.dataTask(with: req) { data, _, _ in
+    controllerSession.dataTask(with: req) { data, _, _ in
         defer { sem.signal() }
         guard let data = data,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -295,7 +302,7 @@ func selectProxyNode(configDir: String, group: String, node: String) -> Bool {
     req.httpBody = try? JSONSerialization.data(withJSONObject: ["name": node])
     let sem = DispatchSemaphore(value: 0)
     var ok = false
-    URLSession.shared.dataTask(with: req) { _, resp, _ in
+    controllerSession.dataTask(with: req) { _, resp, _ in
         defer { sem.signal() }
         ok = (resp as? HTTPURLResponse)?.statusCode == 204
     }.resume()

@@ -17,7 +17,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         proxy.httpServer = NEProxyServer(address: "127.0.0.1", port: 7890)
         proxy.httpsEnabled = true
         proxy.httpsServer = NEProxyServer(address: "127.0.0.1", port: 7890)
-        proxy.matchDomains = []
+        proxy.matchDomains = [""]
         settings.proxySettings = proxy
 
         setTunnelNetworkSettings(settings) { error in
