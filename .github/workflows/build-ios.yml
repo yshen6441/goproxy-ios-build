@@ -298,7 +298,7 @@ jobs:
           cat > pkg/DEBIAN/control <<'EOF'
           Package: com.metacubex.mihomo-toggle
           Name: mihomo-toggle
-          Version: 1.6
+          Version: 1.7
           Architecture: iphoneos-arm64e
           Description: One-tap run/stop mihomo with config switching (roothide)
           Maintainer: MetaCubeX
@@ -327,7 +327,7 @@ jobs:
           EOF
           chmod 755 pkg/DEBIAN/postinst pkg/DEBIAN/prerm
           chmod 755 pkg/DEBIAN
-          dpkg-deb -Zgzip -b pkg mihomo-toggle_1.6_iphoneos-arm64e.deb
+          dpkg-deb -Zgzip -b pkg mihomo-toggle_1.7_iphoneos-arm64e.deb
 
       - name: Package ipa (iphoneos-arm64e)
         working-directory: buildrepo/mihomo-toggle
@@ -335,8 +335,8 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -r MihomoToggle.app Payload/
-          zip -qry MihomoToggle_1.6_iphoneos-arm64e.ipa Payload
-          ls -la MihomoToggle_1.6_iphoneos-arm64e.ipa
+          zip -qry MihomoToggle_1.7_iphoneos-arm64e.ipa Payload
+          ls -la MihomoToggle_1.7_iphoneos-arm64e.ipa
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
