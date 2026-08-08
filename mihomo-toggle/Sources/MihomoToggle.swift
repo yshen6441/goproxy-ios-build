@@ -14,9 +14,39 @@ let MIHOMO_CANDIDATES = [
     "/opt/procursus/bin/mihomo",
 ]
 
+func findJailbreakRoots() -> [String] {
+    var roots: [String] = []
+    let fm = FileManager.default
+    if fm.fileExists(atPath: "/var/jb") {
+        roots.append("/var/jb")
+    }
+    for base in ["/var/containers/Bundle/Application",
+                 "/private/var/containers/Bundle/Application",
+                 "/var/containers/Shared/SystemGroup/systemgroup.com.apple.containerd",
+                 "/private/var/mobile/Containers/Shared/AppGroup"] {
+        guard let entries = try? fm.contentsOfDirectory(atPath: base) else { continue }
+        for name in entries {
+            if name.hasPrefix(".jbroot-") {
+                roots.append(base + "/" + name)
+            }
+            if name.hasPrefix("jbroot-") {
+                roots.append(base + "/" + name)
+            }
+        }
+    }
+    return roots
+}
+
 func findMihomoBinary() -> String {
-    for p in MIHOMO_CANDIDATES {
-        if FileManager.default.isExecutableFile(atPath: p) {
+    var candidates = MIHOMO_CANDIDATES
+    let fm = FileManager.default
+    for root in findJailbreakRoots() {
+        for sub in ["/usr/local/bin/mihomo", "/usr/bin/mihomo", "/usr/local/bin/mihomo-ios"] {
+            candidates.append(root + sub)
+        }
+    }
+    for p in candidates {
+        if fm.isExecutableFile(atPath: p) {
             return p
         }
     }
@@ -24,9 +54,18 @@ func findMihomoBinary() -> String {
 }
 
 func probeCandidates() -> String {
-    MIHOMO_CANDIDATES.map { p in
-        "\(p): \(FileManager.default.isExecutableFile(atPath: p) ? "OK" : "missing")"
-    }.joined(separator: "\n")
+    var lines: [String] = []
+    let fm = FileManager.default
+    for root in findJailbreakRoots() {
+        lines.append("jbroot: \(root)")
+        for sub in ["/usr/local/bin/mihomo", "/usr/bin/mihomo"] {
+            lines.append("  \(root + sub): \(fm.isExecutableFile(atPath: root + sub) ? "OK" : "missing")")
+        }
+    }
+    for p in MIHOMO_CANDIDATES {
+        lines.append("\(p): \(fm.isExecutableFile(atPath: p) ? "OK" : "missing")")
+    }
+    return lines.joined(separator: "\n")
 }
 
 func readPid() -> pid_t {
