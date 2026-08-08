@@ -285,9 +285,8 @@ struct ContentView: View {
         ZStack {
             LinearGradient(
                 gradient: Gradient(colors: [
-                    Color(red: 0.02, green: 0.04, blue: 0.09),
-                    Color(red: 0.09, green: 0.13, blue: 0.20),
-                    Color(red: 0.02, green: 0.06, blue: 0.12)
+                    Color(red: 0.99, green: 0.99, blue: 1.0),
+                    Color(red: 0.93, green: 0.95, blue: 0.99)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -302,11 +301,11 @@ struct ContentView: View {
                         .font(.system(size: 28, weight: .bold, design: .monospaced))
                         .tracking(6)
                         .foregroundColor(neonCyan)
-                        .shadow(color: neonCyan.opacity(0.6), radius: 8)
+                        .shadow(color: neonCyan.opacity(0.4), radius: 6)
                     if !selectedConfig.isEmpty {
                         Text("> 当前配置: \(selectedConfig)")
                             .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(neonCyan.opacity(0.7))
+                            .foregroundColor(neonCyan.opacity(0.8))
                     }
                 }
 
@@ -320,20 +319,20 @@ struct ContentView: View {
                 } label: {
                     ZStack {
                         Circle()
-                            .stroke(Color.white.opacity(0.08), lineWidth: 10)
+                            .stroke(Color.gray.opacity(0.25), lineWidth: 10)
                             .frame(width: 150, height: 150)
                         Circle()
                             .trim(from: 0, to: ringProgress)
                             .stroke(
                                 AngularGradient(
-                                    gradient: Gradient(colors: [glowColor.opacity(0.3), glowColor, Color.white.opacity(0.9)]),
+                                    gradient: Gradient(colors: [glowColor.opacity(0.3), glowColor, Color.gray.opacity(0.6)]),
                                     center: .center
                                 ),
                                 style: StrokeStyle(lineWidth: 10, lineCap: .round)
                             )
                             .frame(width: 150, height: 150)
                             .rotationEffect(.degrees(-90))
-                            .shadow(color: glowColor.opacity(0.8), radius: 12)
+                            .shadow(color: glowColor.opacity(0.7), radius: 12)
                         VStack(spacing: 4) {
                             if busy {
                                 ProgressView()
@@ -343,14 +342,10 @@ struct ContentView: View {
                                 Text(statusText)
                                     .font(.system(size: 18, weight: .semibold, design: .monospaced))
                                     .foregroundColor(statusTextColor)
-                                    .shadow(color: glowColor.opacity(0.6), radius: 6)
+                                    .shadow(color: glowColor.opacity(0.5), radius: 5)
                                 Text(statusCode)
                                     .font(.system(size: 10, design: .monospaced))
-                                    .foregroundColor(.white.opacity(0.4))
-                                Text(masterDesired ? "TAP TO STOP" : "TAP TO START")
-                                    .font(.system(size: 8, design: .monospaced))
-                                    .foregroundColor(.white.opacity(0.25))
-                                    .padding(.top, 2)
+                                    .foregroundColor(.gray.opacity(0.6))
                             }
                         }
                     }
@@ -369,7 +364,7 @@ struct ContentView: View {
                 VStack(spacing: 14) {
                     Text("// 配置切换")
                         .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                        .foregroundColor(neonCyan.opacity(0.8))
+                        .foregroundColor(neonCyan.opacity(0.9))
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: 10) {
@@ -390,10 +385,10 @@ struct ContentView: View {
                         .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 10)
-                                .fill(Color.white.opacity(0.05))
+                                .fill(Color.gray.opacity(0.12))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 10)
-                                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                                 )
                         )
 
@@ -421,7 +416,7 @@ struct ContentView: View {
                     HStack(spacing: 10) {
                         Text("MIHOMO")
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundColor(status == "running" ? neonGreen : .white.opacity(0.35))
+                            .foregroundColor(status == "running" ? neonGreen : .gray.opacity(0.6))
                         Circle()
                             .fill(status == "running" ? neonGreen : Color.gray)
                             .frame(width: 7, height: 7)
@@ -429,7 +424,7 @@ struct ContentView: View {
                         Spacer()
                         Text("VPN")
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundColor(vpnUp ? neonGreen : .white.opacity(0.35))
+                            .foregroundColor(vpnUp ? neonGreen : .gray.opacity(0.6))
                         Circle()
                             .fill(vpnUp ? neonGreen : Color.gray)
                             .frame(width: 7, height: 7)
@@ -437,22 +432,22 @@ struct ContentView: View {
                     }
 
                     Divider()
-                        .background(Color.white.opacity(0.15))
+                        .background(Color.gray.opacity(0.3))
                         .padding(.vertical, 2)
 
                     Text("DIR: \(CONFIG_DIR)")
                         .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.3))
+                        .foregroundColor(.gray.opacity(0.7))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 2)
                 }
                 .padding(18)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.white.opacity(0.04))
+                        .fill(Color.white.opacity(0.6))
                         .overlay(
                             RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                         )
                 )
                 .padding(.horizontal, 22)
@@ -484,14 +479,14 @@ struct ContentView: View {
         }
     }
 
-    private var neonCyan: Color { Color(red: 0.0, green: 0.85, blue: 0.95) }
-    private var neonGreen: Color { Color(red: 0.1, green: 0.95, blue: 0.55) }
+    private var neonCyan: Color { Color(red: 0.0, green: 0.55, blue: 0.72) }
+    private var neonGreen: Color { Color(red: 0.0, green: 0.62, blue: 0.32) }
 
     private var glowColor: Color {
         if status == "running" {
-            return vpnStatus == .connected ? neonGreen : Color(red: 1.0, green: 0.6, blue: 0.1)
+            return vpnStatus == .connected ? neonGreen : Color(red: 0.85, green: 0.45, blue: 0.05)
         }
-        return status == "stopped" ? Color.white.opacity(0.3) : Color(red: 1.0, green: 0.6, blue: 0.1)
+        return status == "stopped" ? Color.gray.opacity(0.45) : Color(red: 0.85, green: 0.45, blue: 0.05)
     }
 
     private var ringProgress: CGFloat {
@@ -503,9 +498,9 @@ struct ContentView: View {
 
     private var statusTextColor: Color {
         if status == "running" {
-            return vpnStatus == .connected ? neonGreen : Color(red: 1.0, green: 0.6, blue: 0.1)
+            return vpnStatus == .connected ? neonGreen : Color(red: 0.85, green: 0.45, blue: 0.05)
         }
-        return status == "stopped" ? .white.opacity(0.5) : Color(red: 1.0, green: 0.6, blue: 0.1)
+        return status == "stopped" ? Color.gray.opacity(0.7) : Color(red: 0.85, green: 0.45, blue: 0.05)
     }
 
     private var statusCode: String {
@@ -681,43 +676,43 @@ struct ConfigEditorView: View {
 
     var body: some View {
         ZStack {
-            Color(red: 0.01, green: 0.02, blue: 0.04)
+            Color(red: 0.96, green: 0.97, blue: 0.99)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    Circle().fill(Color.red.opacity(0.9)).frame(width: 10, height: 10)
-                    Circle().fill(Color.orange.opacity(0.9)).frame(width: 10, height: 10)
-                    Circle().fill(Color.green.opacity(0.9)).frame(width: 10, height: 10)
+                    Circle().fill(Color.red).frame(width: 10, height: 10)
+                    Circle().fill(Color.orange).frame(width: 10, height: 10)
+                    Circle().fill(Color.green).frame(width: 10, height: 10)
                     Spacer()
                     Text("vim — \(fileName)")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.5))
+                        .foregroundColor(.gray.opacity(0.8))
                     Spacer()
                     Button {
                         dismiss()
                     } label: {
                         Text("取消")
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.7))
+                            .foregroundColor(.gray)
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(Color.white.opacity(0.06))
+                .background(Color.white)
 
                 TextEditor(text: $content)
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(neonGreen)
+                    .foregroundColor(Color(red: 0.15, green: 0.17, blue: 0.2))
                     .autocapitalization(.none)
                     .disableAutocorrection(true)
-                    .background(Color(red: 0.01, green: 0.02, blue: 0.04))
+                    .background(Color(red: 0.96, green: 0.97, blue: 0.99))
                     .padding(8)
 
                 if !saveError.isEmpty {
                     Text("⚠ \(saveError)")
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.red.opacity(0.9))
+                        .foregroundColor(.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 14)
                 }
@@ -725,7 +720,7 @@ struct ConfigEditorView: View {
                 HStack(spacing: 12) {
                     Text("\(fileName) — \(content.count) 字符")
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.3))
+                        .foregroundColor(.gray.opacity(0.7))
                     Spacer()
                     Button {
                         content = original
@@ -737,7 +732,7 @@ struct ConfigEditorView: View {
                             .padding(.vertical, 8)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.orange.opacity(0.12))
+                                    .fill(Color.orange.opacity(0.15))
                             )
                     }
                     Button {
@@ -756,7 +751,7 @@ struct ConfigEditorView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(Color.white.opacity(0.04))
+                .background(Color.white)
             }
         }
         .onAppear {
@@ -764,7 +759,7 @@ struct ConfigEditorView: View {
         }
     }
 
-    private var neonGreen: Color { Color(red: 0.2, green: 1.0, blue: 0.5) }
+    private var neonGreen: Color { Color(red: 0.0, green: 0.62, blue: 0.32) }
 
     private var filePath: String {
         if fileName.isEmpty { return "" }
