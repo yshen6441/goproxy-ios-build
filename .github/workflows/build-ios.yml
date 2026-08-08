@@ -308,8 +308,8 @@ jobs:
           EOF
           cat > pkg/DEBIAN/postinst <<'EOF'
           #!/bin/bash
-          mkdir -p /var/mobile/.config/mihomo
-          chmod 777 /var/mobile/.config/mihomo
+          mkdir -p /var/jb/var/mobile/.config/mihomo
+          chmod 777 /var/jb/var/mobile/.config/mihomo
           if [ -x /var/jb/usr/bin/uicache ]; then
             /var/jb/usr/bin/uicache -a 2>/dev/null || true
           fi
@@ -317,8 +317,8 @@ jobs:
           EOF
           cat > pkg/DEBIAN/prerm <<'EOF'
           #!/bin/bash
-          if [ -f /var/mobile/.config/mihomo/.mihomo.pid ]; then
-            PID=$(cat /var/mobile/.config/mihomo/.mihomo.pid)
+          if [ -f /var/jb/var/mobile/.config/mihomo/.mihomo.pid ]; then
+            PID=$(cat /var/jb/var/mobile/.config/mihomo/.mihomo.pid)
             [ -n "$PID" ] && kill "$PID" 2>/dev/null || true
           fi
           exit 0

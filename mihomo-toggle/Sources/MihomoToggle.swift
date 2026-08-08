@@ -32,7 +32,7 @@ var CONFIG_DIR: String { resolveConfigDir() }
 var PID_PATH: String { CONFIG_DIR + "/.mihomo.pid" }
 var CFG_PATH: String { CONFIG_DIR + "/.config_path" }
 var LOG_PATH: String { CONFIG_DIR + "/mihomo.log" }
-var TUNNEL_LOG_PATH: String { "/var/mobile/.config/mihomo/tunnel.log" }
+var TUNNEL_LOG_PATH: String { CONFIG_DIR + "/tunnel.log" }
 
 func configCwd() -> String {
     let d = resolveConfigDir()

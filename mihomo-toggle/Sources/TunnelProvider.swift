@@ -3,7 +3,7 @@ import Foundation
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
 
-    private let logPath = "/var/mobile/.config/mihomo/tunnel.log"
+    private let logPath = "/var/jb/var/mobile/.config/mihomo/tunnel.log"
 
     private func log(_ msg: String) {
         let line = "[\(Date())] \(msg)\n"
