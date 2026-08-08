@@ -506,7 +506,7 @@ struct ContentView: View {
                 let pid = startMihomo(configPath: self.currentConfigPath())
                 DispatchQueue.main.async {
                     if pid <= 0 {
-                        self.lastError = self.lastSpawnError.isEmpty ? "启动失败" : self.lastSpawnError
+                        self.lastError = lastSpawnError.isEmpty ? "启动失败" : lastSpawnError
                         self.busy = false
                         self.refreshStatus()
                         return
@@ -543,7 +543,7 @@ struct ContentView: View {
                 if pid > 0 {
                     self.lastError = "mihomo 已用新配置重启 (pid \(pid))"
                 } else {
-                    self.lastError = self.lastSpawnError.isEmpty ? "重启失败" : self.lastSpawnError
+                    self.lastError = lastSpawnError.isEmpty ? "重启失败" : lastSpawnError
                 }
                 self.refreshStatus()
                 self.busy = false
