@@ -225,10 +225,11 @@ jobs:
         run: |
           SDKROOT="$(xcrun -sdk iphoneos --show-sdk-path)"
           mkdir -p MihomoToggle.app/PlugIns/MihomoTunnel.appex
-          xcrun -sdk iphoneos swiftc -parse-as-library \
+          xcrun -sdk iphoneos swiftc \
             -target arm64-apple-ios15.0 \
             -sdk "$SDKROOT" \
             -module-name MihomoTunnel \
+            Sources/main.swift \
             Sources/TunnelProvider.swift \
             -o MihomoToggle.app/PlugIns/MihomoTunnel.appex/MihomoTunnel \
             -framework NetworkExtension -framework Foundation
