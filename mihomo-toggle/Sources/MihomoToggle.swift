@@ -44,10 +44,11 @@ func configCwd() -> String {
 }
 
 func findJailbreakRoots() -> [String] {
-    var roots: [String] = []
+    if !_jbRoots.isEmpty { return _jbRoots }
     let fm = FileManager.default
     if fm.fileExists(atPath: "/var/jb") {
-        roots.append("/var/jb")
+        _jbRoots = ["/var/jb"]
+        return _jbRoots
     }
     for base in ["/var/containers/Bundle/Application",
                  "/private/var/containers/Bundle/Application",
@@ -56,17 +57,24 @@ func findJailbreakRoots() -> [String] {
         guard let entries = try? fm.contentsOfDirectory(atPath: base) else { continue }
         for name in entries {
             if name.hasPrefix(".jbroot-") {
-                roots.append(base + "/" + name)
+                _jbRoots.append(base + "/" + name)
             }
             if name.hasPrefix("jbroot-") {
-                roots.append(base + "/" + name)
+                _jbRoots.append(base + "/" + name)
             }
         }
     }
-    return roots
+    return _jbRoots
 }
 
+private var _jbRoots: [String] = []
+
+private var _cachedBinary = ""
+private var _binarySearched = false
+
 func findMihomoBinary() -> String {
+    if _binarySearched { return _cachedBinary }
+    _binarySearched = true
     var candidates = MIHOMO_CANDIDATES
     let fm = FileManager.default
     for root in findJailbreakRoots() {
@@ -76,10 +84,11 @@ func findMihomoBinary() -> String {
     }
     for p in candidates {
         if fm.isExecutableFile(atPath: p) {
-            return p
+            _cachedBinary = p
+            break
         }
     }
-    return ""
+    return _cachedBinary
 }
 
 func probeCandidates() -> String {
@@ -137,7 +146,6 @@ func startMihomo(configPath: String) -> pid_t {
 
     let relConfig = ".config/mihomo/" + ((configPath as NSString).lastPathComponent)
     let cwdPath = configCwd()
-    let bin = findMihomoBinary()
     let roots = findJailbreakRoots()
     let fm = FileManager.default
     var probeLines = "roots:\n"
@@ -147,7 +155,7 @@ func startMihomo(configPath: String) -> pid_t {
             probeLines += "    \(r + sub): \((try? fm.contentsOfDirectory(atPath: r + sub)) != nil ? "OK" : "missing")\n"
         }
     }
-    probeLines += "configDir: \(resolveConfigDir())\ncwd: \(cwdPath)\nbin: \(bin)\n"
+    probeLines += "configDir: \(resolveConfigDir())\ncwd: \(cwdPath)\nbin: \(binPath)\n"
     let cmdLine = "=== mihomo start ===\n" + probeLines + "cmd: -d .config/mihomo -f \(relConfig)\n"
     if let f = fopen(LOG_PATH, "a") {
         fputs(cmdLine, f)
@@ -519,6 +527,22 @@ struct ContentView: View {
     }
 }
 
+func readTail(_ path: String, maxBytes: Int = 64 * 1024) -> String? {
+    guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+          let size = attrs[.size] as? NSNumber else { return nil }
+    let sz = size.int64Value
+    if sz <= Int64(maxBytes) {
+        return try? String(contentsOfFile: path, encoding: .utf8)
+    }
+    guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
+    defer { try? fh.close() }
+    fh.seek(toFileOffset: UInt64(sz - Int64(maxBytes)))
+    let data = fh.readDataToEndOfFile()
+    var s = String(data: data, encoding: .utf8)
+    if s == nil, let latin = String(data: data, encoding: .isoLatin1) { s = latin }
+    return s.map { "(日志过长，仅显示末尾)\n" + $0 }
+}
+
 struct LogView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var content = ""
@@ -538,12 +562,12 @@ struct LogView: View {
         }
         .onAppear {
             var parts: [String] = []
-            if let mihomo = try? String(contentsOfFile: LOG_PATH, encoding: .utf8) {
+            if let mihomo = readTail(LOG_PATH) {
                 parts.append("==== mihomo ====\n" + mihomo)
             } else {
                 parts.append("==== mihomo ====\n(读取失败)")
             }
-            if let tunnel = try? String(contentsOfFile: TUNNEL_LOG_PATH, encoding: .utf8) {
+            if let tunnel = readTail(TUNNEL_LOG_PATH) {
                 parts.append("==== tunnel ====\n" + tunnel)
             } else {
                 parts.append("==== tunnel ====\n(无 tunnel 日志，扩展可能未被启动)")
