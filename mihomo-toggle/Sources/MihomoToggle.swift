@@ -12,16 +12,38 @@ let MIHOMO_CANDIDATES = [
 
 let TUNNEL_BUNDLE_ID = "com.metacubex.mihomo-toggle.tunnel"
 
-func resolveConfigDir() -> String {
-    let fm = FileManager.default
+func configDirCandidates() -> [String] {
     var candidates: [String] = []
     for root in findJailbreakRoots() {
         candidates.append(root + "/var/mobile/.config/mihomo")
         candidates.append(root + "/.config/mihomo")
     }
     candidates.append("/var/mobile/.config/mihomo")
+    candidates.append("/var/jb/var/mobile/.config/mihomo")
+    candidates.append("/var/jb/.config/mihomo")
+    var seen = Set<String>()
+    return candidates.filter { seen.insert($0).inserted }
+}
+
+private var _resolvedConfigDir: String?
+
+func resolveConfigDir() -> String {
+    let fm = FileManager.default
+    if let cached = _resolvedConfigDir, (try? fm.contentsOfDirectory(atPath: cached)) != nil {
+        return cached
+    }
+    _resolvedConfigDir = nil
+    let candidates = configDirCandidates()
+    for c in candidates {
+        if let files = try? fm.contentsOfDirectory(atPath: c),
+           files.contains(where: { $0.hasSuffix(".yaml") || $0.hasSuffix(".yml") }) {
+            _resolvedConfigDir = c
+            return c
+        }
+    }
     for c in candidates {
         if (try? fm.contentsOfDirectory(atPath: c)) != nil {
+            _resolvedConfigDir = c
             return c
         }
     }
@@ -151,9 +173,9 @@ func startMihomo(configPath: String) -> pid_t {
     var probeLines = "roots:\n"
     for r in roots {
         probeLines += "  \(r)\n"
-        for sub in ["/var/mobile/.config/mihomo", "/.config/mihomo"] {
-            probeLines += "    \(r + sub): \((try? fm.contentsOfDirectory(atPath: r + sub)) != nil ? "OK" : "missing")\n"
-        }
+    }
+    for c in configDirCandidates() {
+        probeLines += "  \(c): \((try? fm.contentsOfDirectory(atPath: c)) != nil ? "OK" : "missing")\n"
     }
     probeLines += "configDir: \(resolveConfigDir())\ncwd: \(cwdPath)\nbin: \(binPath)\n"
     let cmdLine = "=== mihomo start ===\n" + probeLines + "cmd: -d .config/mihomo -f \(relConfig)\n"
