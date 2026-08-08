@@ -1,4 +1,4 @@
-name: Build goproxy for iOS (roothide)
+name: Build goproxy for iOS (rootless/Dopamine)
 
 on:
   workflow_dispatch:
@@ -65,16 +65,16 @@ jobs:
           lipo -info goproxy/goproxy-ios
           otool -l goproxy/goproxy-ios | grep -A6 LC_BUILD_VERSION | head -12
 
-      - name: Package deb (iphoneos-arm64e)
+      - name: Package deb (rootless iphoneos-arm64e)
         run: |
-          mkdir -p pkg/DEBIAN pkg/usr/local/bin
-          cp goproxy/goproxy-ios pkg/usr/local/bin/goproxy
+          mkdir -p pkg/DEBIAN pkg/var/jb/usr/local/bin
+          cp goproxy/goproxy-ios pkg/var/jb/usr/local/bin/goproxy
           cat > pkg/DEBIAN/control <<'EOF'
           Package: com.snail007.goproxy
           Name: goproxy
           Version: 3.0
           Architecture: iphoneos-arm64e
-          Description: High-performance proxy for iOS (http/https/socks5/tcp/udp/tunnel)
+          Description: High-performance proxy for iOS (rootless) (http/https/socks5/tcp/udp/tunnel)
           Maintainer: goproxy <goproxy.win>
           Section: Networking
           Depends: firmware (>= 12.0)
@@ -82,7 +82,7 @@ jobs:
           Homepage: https://www.goproxy.win/
           EOF
           chmod 755 pkg/DEBIAN
-          dpkg-deb -Zgzip -b pkg goproxy_3.0_iphoneos-arm64e.deb
+          dpkg-deb -Zgzip -b pkg goproxy_3.0_iphoneos-arm64e-rootless.deb
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -90,7 +90,7 @@ jobs:
           name: goproxy-ios-build
           path: |
             goproxy/goproxy-ios
-            goproxy_3.0_iphoneos-arm64e.deb
+            goproxy_3.0_iphoneos-arm64e-rootless.deb
 
   build-mihomo:
     runs-on: macos-latest
@@ -166,17 +166,17 @@ jobs:
           unzip -q /tmp/metacubexd.zip -d /tmp/metacubexd
           ls /tmp/metacubexd
 
-      - name: Package deb (iphoneos-arm64e)
+      - name: Package deb (rootless iphoneos-arm64e)
         run: |
-          mkdir -p pkg/DEBIAN pkg/usr/local/bin pkg/usr/local/share/mihomo/ui
-          cp mihomo/mihomo-ios pkg/usr/local/bin/mihomo
-          cp -r /tmp/metacubexd/metacubexd-gh-pages/* pkg/usr/local/share/mihomo/ui/
+          mkdir -p pkg/DEBIAN pkg/var/jb/usr/local/bin pkg/var/jb/usr/local/share/mihomo/ui
+          cp mihomo/mihomo-ios pkg/var/jb/usr/local/bin/mihomo
+          cp -r /tmp/metacubexd/metacubexd-gh-pages/* pkg/var/jb/usr/local/share/mihomo/ui/
           cat > pkg/DEBIAN/control <<'EOF'
           Package: com.metacubex.mihomo
           Name: mihomo
           Version: 1.19.29
           Architecture: iphoneos-arm64e
-          Description: mihomo (Clash.Meta) rule-based proxy for iOS (http/socks5/vmess/trojan/ss/cns)
+          Description: mihomo (Clash.Meta) rule-based proxy for iOS (rootless) (http/socks5/vmess/trojan/ss/cns)
           Maintainer: MetaCubeX
           Section: Networking
           Depends: firmware (>= 12.0)
@@ -184,7 +184,7 @@ jobs:
           Homepage: https://github.com/MetaCubeX/mihomo
           EOF
           chmod 755 pkg/DEBIAN
-          dpkg-deb -Zgzip -b pkg mihomo_1.19.29_iphoneos-arm64e.deb
+          dpkg-deb -Zgzip -b pkg mihomo_1.19.29_iphoneos-arm64e-rootless.deb
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -192,7 +192,7 @@ jobs:
           name: mihomo-ios-build
           path: |
             mihomo/mihomo-ios
-            mihomo_1.19.29_iphoneos-arm64e.deb
+            mihomo_1.19.29_iphoneos-arm64e-rootless.deb
 
   build-toggle:
     runs-on: macos-latest
@@ -290,17 +290,17 @@ jobs:
           ldid -Sroothide.entitlements MihomoToggle.app/MihomoToggle
           ldid -Stunnel.entitlements MihomoToggle.app/PlugIns/MihomoTunnel.appex/MihomoTunnel
 
-      - name: Package deb (iphoneos-arm64e)
+      - name: Package deb (rootless iphoneos-arm64e)
         working-directory: buildrepo/mihomo-toggle
         run: |
-          mkdir -p pkg/DEBIAN pkg/Applications
-          cp -r MihomoToggle.app pkg/Applications/
+          mkdir -p pkg/DEBIAN pkg/var/jb/Applications
+          cp -r MihomoToggle.app pkg/var/jb/Applications/
           cat > pkg/DEBIAN/control <<'EOF'
           Package: com.metacubex.mihomo-toggle
           Name: mihomo-toggle
-          Version: 1.7
+          Version: 1.8
           Architecture: iphoneos-arm64e
-          Description: One-tap run/stop mihomo with config switching (roothide)
+          Description: One-tap run/stop mihomo with config switching (rootless)
           Maintainer: MetaCubeX
           Section: Utilities
           Depends: firmware (>= 15.0)
@@ -309,9 +309,7 @@ jobs:
           cat > pkg/DEBIAN/postinst <<'EOF'
           #!/bin/bash
           mkdir -p /var/mobile/.config/mihomo
-          /var/jb/usr/bin/launchctl bootout system/com.metacubex.helper 2>/dev/null || true
-          /var/jb/usr/bin/launchctl bootout system/com.metacubex.mihomo 2>/dev/null || true
-          rm -f /var/jb/Library/LaunchDaemons/com.metacubex.helper.plist /var/jb/Library/LaunchDaemons/com.metacubex.mihomo.plist 2>/dev/null || true
+          chmod 777 /var/mobile/.config/mihomo
           if [ -x /var/jb/usr/bin/uicache ]; then
             /var/jb/usr/bin/uicache -a 2>/dev/null || true
           fi
@@ -327,16 +325,16 @@ jobs:
           EOF
           chmod 755 pkg/DEBIAN/postinst pkg/DEBIAN/prerm
           chmod 755 pkg/DEBIAN
-          dpkg-deb -Zgzip -b pkg mihomo-toggle_1.7_iphoneos-arm64e.deb
+          dpkg-deb -Zgzip -b pkg mihomo-toggle_1.8_iphoneos-arm64e-rootless.deb
 
-      - name: Package ipa (iphoneos-arm64e)
+      - name: Package ipa (iphoneos-arm64e, unsigned)
         working-directory: buildrepo/mihomo-toggle
         run: |
           rm -rf Payload
           mkdir -p Payload
           cp -r MihomoToggle.app Payload/
-          zip -qry MihomoToggle_1.7_iphoneos-arm64e.ipa Payload
-          ls -la MihomoToggle_1.7_iphoneos-arm64e.ipa
+          zip -qry MihomoToggle_1.8_iphoneos-arm64e-rootless.ipa Payload
+          ls -la MihomoToggle_1.8_iphoneos-arm64e-rootless.ipa
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
