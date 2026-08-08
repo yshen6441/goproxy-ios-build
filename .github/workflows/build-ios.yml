@@ -193,3 +193,98 @@ jobs:
           path: |
             mihomo/mihomo-ios
             mihomo_1.19.29_iphoneos-arm64e.deb
+
+  build-toggle:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout build repo (toggle app)
+        uses: actions/checkout@v4
+        with:
+          path: buildrepo
+
+      - name: Install ldid and dpkg
+        run: brew install ldid dpkg
+
+      - name: Compile SwiftUI app
+        working-directory: buildrepo/mihomo-toggle
+        run: |
+          SDKROOT="$(xcrun -sdk iphoneos --show-sdk-path)"
+          mkdir -p MihomoToggle.app
+          xcrun -sdk iphoneos swiftc -parse-as-library \
+            -target arm64-apple-ios15.0 \
+            -sdk "$SDKROOT" \
+            Sources/MihomoToggle.swift \
+            -o MihomoToggle.app/MihomoToggle \
+            -framework SwiftUI -framework UIKit -framework Foundation
+          cp Info.plist MihomoToggle.app/Info.plist
+          lipo -info MihomoToggle.app/MihomoToggle
+
+      - name: Sign with roothide entitlements
+        working-directory: buildrepo/mihomo-toggle
+        run: |
+          cat > roothide.entitlements <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>platform-application</key>
+              <true/>
+              <key>com.apple.private.security.no-sandbox</key>
+              <true/>
+              <key>com.apple.private.security.storage.AppBundles</key>
+              <true/>
+              <key>com.apple.private.security.storage.AppDataContainers</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          ldid -Sroothide.entitlements MihomoToggle.app/MihomoToggle
+
+      - name: Package deb (iphoneos-arm64e)
+        working-directory: buildrepo/mihomo-toggle
+        run: |
+          mkdir -p pkg/DEBIAN pkg/Applications pkg/usr/local/share/mihomo
+          cp -r MihomoToggle.app pkg/Applications/
+          cp helper.sh pkg/usr/local/share/mihomo/helper.sh
+          cp com.metacubex.mihomo.plist pkg/usr/local/share/mihomo/com.metacubex.mihomo.plist
+          cp com.metacubex.helper.plist pkg/usr/local/share/mihomo/com.metacubex.helper.plist
+          cat > pkg/DEBIAN/control <<'EOF'
+          Package: com.metacubex.mihomo-toggle
+          Name: mihomo-toggle
+          Version: 1.0
+          Architecture: iphoneos-arm64e
+          Description: One-tap start/stop toggle for mihomo (roothide)
+          Maintainer: MetaCubeX
+          Section: Utilities
+          Depends: firmware (>= 15.0)
+          Author: MetaCubeX
+          EOF
+          cat > pkg/DEBIAN/postinst <<'EOF'
+          #!/bin/bash
+          mkdir -p /var/mobile/.config/mihomo
+          cp -f /usr/local/share/mihomo/com.metacubex.mihomo.plist /Library/LaunchDaemons/com.metacubex.mihomo.plist
+          cp -f /usr/local/share/mihomo/com.metacubex.helper.plist /Library/LaunchDaemons/com.metacubex.helper.plist
+          /bin/launchctl bootstrap system /Library/LaunchDaemons/com.metacubex.helper.plist 2>/dev/null || true
+          if [ -x /var/jb/usr/bin/uicache ]; then
+            /var/jb/usr/bin/uicache -a 2>/dev/null || true
+          fi
+          exit 0
+          EOF
+          cat > pkg/DEBIAN/prerm <<'EOF'
+          #!/bin/bash
+          /bin/launchctl bootout system/com.metacubex.helper 2>/dev/null || true
+          /bin/launchctl bootout system/com.metacubex.mihomo 2>/dev/null || true
+          exit 0
+          EOF
+          chmod 755 pkg/DEBIAN/postinst pkg/DEBIAN/prerm
+          chmod 755 pkg/DEBIAN
+          dpkg-deb -Zgzip -b pkg mihomo-toggle_1.0_iphoneos-arm64e.deb
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-toggle-build
+          path: |
+            buildrepo/mihomo-toggle/MihomoToggle.app/
+            buildrepo/mihomo-toggle/mihomo-toggle_1.0_iphoneos-arm64e.deb
