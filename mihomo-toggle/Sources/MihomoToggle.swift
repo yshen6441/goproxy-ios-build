@@ -303,6 +303,35 @@ func selectProxyNode(configDir: String, group: String, node: String) -> Bool {
     return ok
 }
 
+var tunnelManager: NETunnelProviderManager?
+
+func loadTunnelManager(completion: @escaping (NETunnelProviderManager?) -> Void) {
+    NETunnelProviderManager.loadAllFromPreferences { managers, _ in
+        var match = managers?.first {
+            $0.protocolConfiguration is NETunnelProviderProtocol &&
+            $0.localizedDescription == "mihomo 全局代理"
+        }
+        if match == nil {
+            let m = NETunnelProviderManager()
+            let proto = NETunnelProviderProtocol()
+            proto.providerBundleIdentifier = TUNNEL_BUNDLE_ID
+            proto.serverAddress = "mihomo"
+            proto.disconnectOnSleep = false
+            m.protocolConfiguration = proto
+            m.localizedDescription = "mihomo 全局代理"
+            m.isEnabled = true
+            m.saveToPreferences { _ in
+                match = m
+                tunnelManager = m
+                completion(m)
+            }
+        } else {
+            tunnelManager = match
+            completion(match)
+        }
+    }
+}
+
 struct ContentView: View {
     @State private var status = "unknown"
     @State private var busy = false
@@ -461,6 +490,9 @@ struct ContentView: View {
         .onAppear {
             loadConfigs()
             refreshStatus()
+            loadTunnelManager { _ in
+                self.refreshVpnStatus()
+            }
         }
         .sheet(isPresented: $showLog) {
             LogView()
@@ -600,13 +632,13 @@ struct ContentView: View {
             proxyGroups = []
         }
         wasRunning = running
-        vpnStatus = NEVPNManager.shared().connection.status
+        refreshVpnStatus()
     }
 
     private func toggleVpn() {
-        let manager = NEVPNManager.shared()
         if vpnStatus == .connected || vpnStatus == .connecting || vpnStatus == .disconnecting || vpnStatus == .reasserting {
-            manager.connection.stopVPNTunnel()
+            tunnelManager?.connection.stopVPNTunnel()
+            NEVPNManager.shared().connection.stopVPNTunnel()
             return
         }
         if status != "running" {
@@ -618,43 +650,36 @@ struct ContentView: View {
             lastError = "mihomo 已启动 (pid \(pid))"
         }
         vpnBusy = true
-        manager.loadFromPreferences { error in
-            if let error = error {
-                self.lastError = "加载 VPN 配置失败: \(error.localizedDescription)"
+        loadTunnelManager { manager in
+            guard let manager = manager else {
+                self.lastError = "创建 VPN 配置失败"
                 self.vpnBusy = false
                 return
             }
-            if manager.protocolConfiguration == nil {
-                let proto = NETunnelProviderProtocol()
-                proto.providerBundleIdentifier = TUNNEL_BUNDLE_ID
-                proto.serverAddress = "127.0.0.1"
-                proto.disconnectOnSleep = false
-                manager.protocolConfiguration = proto
-                manager.localizedDescription = "mihomo 全局代理"
-                manager.isEnabled = true
-                manager.saveToPreferences { error in
-                    if let error = error {
-                        self.lastError = "保存 VPN 配置失败: \(error.localizedDescription)"
-                        self.vpnBusy = false
-                        return
-                    }
-                    self.startVpn(manager)
+            manager.isEnabled = true
+            manager.saveToPreferences { error in
+                if let error = error {
+                    self.lastError = "保存 VPN 配置失败: \(error.localizedDescription)"
+                    self.vpnBusy = false
+                    return
                 }
-            } else {
-                manager.isEnabled = true
-                self.startVpn(manager)
+                do {
+                    try manager.connection.startVPNTunnel()
+                    self.lastError = "正在建立全局代理…"
+                } catch {
+                    self.lastError = "启动 VPN 失败: \(error.localizedDescription)"
+                }
+                self.vpnBusy = false
             }
         }
     }
 
-    private func startVpn(_ manager: NEVPNManager) {
-        do {
-            try manager.connection.startVPNTunnel()
-            lastError = "正在建立全局代理…"
-        } catch {
-            lastError = "启动 VPN 失败: \(error.localizedDescription)"
+    private func refreshVpnStatus() {
+        if let m = tunnelManager {
+            vpnStatus = m.connection.status
+        } else {
+            vpnStatus = NEVPNManager.shared().connection.status
         }
-        vpnBusy = false
     }
 
     private func loadProxyGroupsInBackground() {
