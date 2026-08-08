@@ -12,17 +12,6 @@ let MIHOMO_CANDIDATES = [
 
 let TUNNEL_BUNDLE_ID = "com.metacubex.mihomo-toggle.tunnel"
 
-func vpnStatusText(_ status: NEVPNStatus) -> String {
-    switch status {
-    case .connected: return "已连接"
-    case .connecting: return "连接中…"
-    case .disconnecting: return "断开中…"
-    case .reasserting: return "重连中…"
-    case .invalid: return "未配置"
-    @unknown default: return "未知"
-    }
-}
-
 func resolveConfigDir() -> String {
     let fm = FileManager.default
     var candidates: [String] = []
@@ -255,11 +244,25 @@ struct ContentView: View {
     @State private var lastError = ""
     @State private var showLog = false
     @State private var vpnStatus: NEVPNStatus = .invalid
-    @State private var vpnBusy = false
+    @State private var masterDesired = false
 
     private let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
-    var body: some View {
+    private var masterOnBinding: Binding<Bool> {
+        Binding(
+            get: { self.masterDesired },
+            set: { newValue in
+                self.masterDesired = newValue
+                if newValue {
+                    self.toggleMasterOn()
+                } else {
+                    self.toggleMasterOff()
+                }
+            }
+        )
+    }
+
+    private var body: some View {
         VStack(spacing: 20) {
             Spacer()
 
@@ -272,24 +275,40 @@ struct ContentView: View {
                     .foregroundColor(.secondary)
             }
 
-            Circle()
-                .fill(statusColor)
-                .frame(width: 120, height: 120)
-                .overlay(
+            ZStack {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 120, height: 120)
+                if busy {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                } else {
                     Text(statusText)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
-                )
-
-            Button(action: toggle) {
-                Text(busy ? "..." : actionLabel)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 200, height: 56)
-                    .background(actionColor)
-                    .cornerRadius(14)
+                }
             }
-            .disabled(busy)
+
+            HStack(spacing: 14) {
+                Text("总开关")
+                    .font(.system(size: 18, weight: .semibold))
+                Toggle("", isOn: masterOnBinding)
+                    .labelsHidden()
+                    .scaleEffect(1.4)
+                    .frame(width: 80)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .background(Color(.systemGray6))
+            .cornerRadius(12)
+
+            if !lastError.isEmpty {
+                Text(lastError)
+                    .font(.footnote)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
 
             VStack(spacing: 12) {
                 Text("配置切换")
@@ -302,51 +321,27 @@ struct ContentView: View {
                 }
                 .pickerStyle(MenuPickerStyle())
                 .frame(maxWidth: 240)
+                .disabled(masterOn)
                 .onChange(of: selectedConfig) { newValue in
                     applyConfig(newValue)
                 }
 
-                if !lastError.isEmpty {
-                    Text(lastError)
-                        .font(.footnote)
-                        .foregroundColor(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+                HStack(spacing: 8) {
+                    Text("mihomo")
+                    Circle()
+                        .fill(status == "running" ? Color.green : Color.gray)
+                        .frame(width: 8, height: 8)
+                    Spacer()
+                    Text("VPN")
+                    Circle()
+                        .fill(vpnColor)
+                        .frame(width: 8, height: 8)
                 }
+                .font(.caption)
+                .foregroundColor(.secondary)
 
                 Divider()
                     .padding(.vertical, 4)
-
-                VStack(spacing: 10) {
-                    HStack {
-                        Text("全局代理 (VPN)")
-                            .font(.headline)
-                        Spacer()
-                        Circle()
-                            .fill(vpnColor)
-                            .frame(width: 10, height: 10)
-                        Text(vpnStatusText(vpnStatus))
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Button(action: toggleVpn) {
-                        Text(vpnBusy ? "..." : vpnActionLabel)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 200, height: 48)
-                            .background(vpnActionColor)
-                            .cornerRadius(12)
-                    }
-                    .disabled(vpnBusy)
-
-                    Text("需要先开启 mihomo。连接后系统 HTTP(S) 流量经 VPN 隧道走本地 mihomo 7890 端口。")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-                .padding(.horizontal)
 
                 Button("查看运行日志") {
                     showLog = true
@@ -376,27 +371,17 @@ struct ContentView: View {
     }
 
     private var statusColor: Color {
-        switch status {
-        case "running": return .green
-        case "stopped": return .gray
-        default: return .orange
+        if status == "running" {
+            return vpnStatus == .connected ? .green : .orange
         }
+        return status == "stopped" ? .gray : .orange
     }
 
     private var statusText: String {
-        switch status {
-        case "running": return "运行中"
-        case "stopped": return "已停止"
-        default: return "未知"
+        if status == "running" {
+            return vpnStatus == .connected ? "已连接" : "连接中"
         }
-    }
-
-    private var actionLabel: String {
-        status == "running" ? "关闭" : "开启"
-    }
-
-    private var actionColor: Color {
-        status == "running" ? .red : .blue
+        return status == "stopped" ? "已停止" : "未知"
     }
 
     private var vpnColor: Color {
@@ -404,22 +389,6 @@ struct ContentView: View {
         case .connected: return .green
         case .connecting, .disconnecting, .reasserting: return .orange
         default: return .gray
-        }
-    }
-
-    private var vpnActionLabel: String {
-        switch vpnStatus {
-        case .connected: return "断开全局代理"
-        case .connecting, .disconnecting, .reasserting: return "请稍候"
-        default: return "连接全局代理"
-        }
-    }
-
-    private var vpnActionColor: Color {
-        switch vpnStatus {
-        case .connected: return .red
-        case .connecting, .disconnecting, .reasserting: return .gray
-        default: return .green
         }
     }
 
@@ -467,22 +436,54 @@ struct ContentView: View {
         }
     }
 
-    private func toggle() {
+    private func toggleMasterOn() {
         busy = true
         lastError = ""
-        if status == "running" {
-            stopMihomo()
-            refreshStatus()
-        } else {
+        if status != "running" {
             let pid = startMihomo(configPath: currentConfigPath())
-            if pid > 0 {
-                lastError = "mihomo 已启动 (pid \(pid))"
-            } else {
+            if pid <= 0 {
                 lastError = lastSpawnError.isEmpty ? "启动失败" : lastSpawnError
+                busy = false
+                refreshStatus()
+                return
             }
-            refreshStatus()
+            lastError = "mihomo 已启动 (pid \(pid))"
         }
+        loadTunnelManager { manager in
+            guard let manager = manager else {
+                self.lastError = "创建 VPN 配置失败"
+                self.busy = false
+                self.refreshStatus()
+                return
+            }
+            manager.isEnabled = true
+            manager.saveToPreferences { error in
+                if let error = error {
+                    self.lastError = "保存 VPN 配置失败: \(error.localizedDescription)"
+                    self.busy = false
+                    self.refreshStatus()
+                    return
+                }
+                do {
+                    try manager.connection.startVPNTunnel()
+                    self.lastError = "已开启"
+                } catch {
+                    self.lastError = "启动 VPN 失败: \(error.localizedDescription)"
+                }
+                self.busy = false
+                self.refreshStatus()
+            }
+        }
+    }
+
+    private func toggleMasterOff() {
+        busy = true
+        lastError = ""
+        tunnelManager?.connection.stopVPNTunnel()
+        NEVPNManager.shared().connection.stopVPNTunnel()
+        stopMihomo()
         busy = false
+        refreshStatus()
     }
 
     private func restart() {
@@ -502,44 +503,9 @@ struct ContentView: View {
         let running = processAlive(readPid())
         status = running ? "running" : "stopped"
         refreshVpnStatus()
-    }
-
-    private func toggleVpn() {
-        if vpnStatus == .connected || vpnStatus == .connecting || vpnStatus == .disconnecting || vpnStatus == .reasserting {
-            tunnelManager?.connection.stopVPNTunnel()
-            NEVPNManager.shared().connection.stopVPNTunnel()
-            return
-        }
-        if status != "running" {
-            let pid = startMihomo(configPath: currentConfigPath())
-            if pid <= 0 {
-                lastError = lastSpawnError.isEmpty ? "请先启动 mihomo" : lastSpawnError
-                return
-            }
-            lastError = "mihomo 已启动 (pid \(pid))"
-        }
-        vpnBusy = true
-        loadTunnelManager { manager in
-            guard let manager = manager else {
-                self.lastError = "创建 VPN 配置失败"
-                self.vpnBusy = false
-                return
-            }
-            manager.isEnabled = true
-            manager.saveToPreferences { error in
-                if let error = error {
-                    self.lastError = "保存 VPN 配置失败: \(error.localizedDescription)"
-                    self.vpnBusy = false
-                    return
-                }
-                do {
-                    try manager.connection.startVPNTunnel()
-                    self.lastError = "正在建立全局代理…"
-                } catch {
-                    self.lastError = "启动 VPN 失败: \(error.localizedDescription)"
-                }
-                self.vpnBusy = false
-            }
+        if !busy {
+            let vpnUp = (vpnStatus == .connected || vpnStatus == .connecting || vpnStatus == .reasserting)
+            masterDesired = running && vpnUp
         }
     }
 
