@@ -475,7 +475,7 @@ struct ContentView: View {
         lastError = ""
         let needStart = status != "running"
         let startVPN: () -> Void = {
-            self.loadTunnelManager { manager in
+            loadTunnelManager { manager in
                 guard let manager = manager else {
                     self.lastError = "创建 VPN 配置失败"
                     self.busy = false
@@ -503,7 +503,7 @@ struct ContentView: View {
         }
         if needStart {
             DispatchQueue.global(qos: .userInitiated).async {
-                let pid = self.startMihomo(configPath: self.currentConfigPath())
+                let pid = startMihomo(configPath: self.currentConfigPath())
                 DispatchQueue.main.async {
                     if pid <= 0 {
                         self.lastError = self.lastSpawnError.isEmpty ? "启动失败" : self.lastSpawnError
@@ -526,7 +526,7 @@ struct ContentView: View {
         tunnelManager?.connection.stopVPNTunnel()
         NEVPNManager.shared().connection.stopVPNTunnel()
         DispatchQueue.global(qos: .userInitiated).async {
-            self.stopMihomo()
+            stopMihomo()
             DispatchQueue.main.async {
                 self.busy = false
                 self.refreshStatus()
@@ -538,7 +538,7 @@ struct ContentView: View {
         busy = true
         lastError = ""
         DispatchQueue.global(qos: .userInitiated).async {
-            let pid = self.startMihomo(configPath: self.currentConfigPath())
+            let pid = startMihomo(configPath: self.currentConfigPath())
             DispatchQueue.main.async {
                 if pid > 0 {
                     self.lastError = "mihomo 已用新配置重启 (pid \(pid))"
