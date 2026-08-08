@@ -1,5 +1,6 @@
 import SwiftUI
 import Darwin
+import NetworkExtension
 
 let MIHOMO_CANDIDATES = [
     "/var/jb/usr/local/bin/mihomo",
@@ -8,6 +9,19 @@ let MIHOMO_CANDIDATES = [
     "/usr/bin/mihomo",
     "/opt/procursus/bin/mihomo",
 ]
+
+let TUNNEL_BUNDLE_ID = "com.metacubex.mihomo-toggle.tunnel"
+
+func vpnStatusText(_ status: NEVPNStatus) -> String {
+    switch status {
+    case .connected: return "已连接"
+    case .connecting: return "连接中…"
+    case .disconnecting: return "断开中…"
+    case .reasserting: return "重连中…"
+    case .invalid: return "未配置"
+    @unknown default: return "未知"
+    }
+}
 
 func resolveConfigDir() -> String {
     let fm = FileManager.default
@@ -298,6 +312,8 @@ struct ContentView: View {
     @State private var showLog = false
     @State private var proxyGroups: [ProxyGroupInfo] = []
     @State private var wasRunning = false
+    @State private var vpnStatus: NEVPNStatus = .invalid
+    @State private var vpnBusy = false
 
     private let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
@@ -393,6 +409,40 @@ struct ContentView: View {
                     .padding(.horizontal)
                 }
 
+                Divider()
+                    .padding(.vertical, 4)
+
+                VStack(spacing: 10) {
+                    HStack {
+                        Text("全局代理 (VPN)")
+                            .font(.headline)
+                        Spacer()
+                        Circle()
+                            .fill(vpnColor)
+                            .frame(width: 10, height: 10)
+                        Text(vpnStatusText(vpnStatus))
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Button(action: toggleVpn) {
+                        Text(vpnBusy ? "..." : vpnActionLabel)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 200, height: 48)
+                            .background(vpnActionColor)
+                            .cornerRadius(12)
+                    }
+                    .disabled(vpnBusy)
+
+                    Text("需要先开启 mihomo。连接后系统 HTTP(S) 流量经 VPN 隧道走本地 mihomo 7890 端口。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                .padding(.horizontal)
+
                 Button("查看运行日志") {
                     showLog = true
                 }
@@ -439,6 +489,30 @@ struct ContentView: View {
 
     private var actionColor: Color {
         status == "running" ? .red : .blue
+    }
+
+    private var vpnColor: Color {
+        switch vpnStatus {
+        case .connected: return .green
+        case .connecting, .disconnecting, .reasserting: return .orange
+        default: return .gray
+        }
+    }
+
+    private var vpnActionLabel: String {
+        switch vpnStatus {
+        case .connected: return "断开全局代理"
+        case .connecting, .disconnecting, .reasserting: return "请稍候"
+        default: return "连接全局代理"
+        }
+    }
+
+    private var vpnActionColor: Color {
+        switch vpnStatus {
+        case .connected: return .red
+        case .connecting, .disconnecting, .reasserting: return .gray
+        default: return .green
+        }
     }
 
     private func loadConfigs() {
@@ -526,7 +600,63 @@ struct ContentView: View {
             proxyGroups = []
         }
         wasRunning = running
+        vpnStatus = NEVPNManager.shared().connection.status
     }
+
+    private func toggleVpn() {
+        let manager = NEVPNManager.shared()
+        if vpnStatus == .connected || vpnStatus == .connecting || vpnStatus == .disconnecting || vpnStatus == .reasserting {
+            manager.connection.stopVPNTunnel()
+            return
+        }
+        if status != "running" {
+            let pid = startMihomo(configPath: currentConfigPath())
+            if pid <= 0 {
+                lastError = lastSpawnError.isEmpty ? "请先启动 mihomo" : lastSpawnError
+                return
+            }
+            lastError = "mihomo 已启动 (pid \(pid))"
+        }
+        vpnBusy = true
+        manager.loadFromPreferences { error in
+            if let error = error {
+                self.lastError = "加载 VPN 配置失败: \(error.localizedDescription)"
+                self.vpnBusy = false
+                return
+            }
+            if manager.protocolConfiguration == nil {
+                let proto = NETunnelProviderProtocol()
+                proto.providerBundleIdentifier = TUNNEL_BUNDLE_ID
+                proto.serverAddress = "127.0.0.1"
+                proto.disconnectOnSleep = false
+                manager.protocolConfiguration = proto
+                manager.localizedDescription = "mihomo 全局代理"
+                manager.isEnabled = true
+                manager.saveToPreferences { error in
+                    if let error = error {
+                        self.lastError = "保存 VPN 配置失败: \(error.localizedDescription)"
+                        self.vpnBusy = false
+                        return
+                    }
+                    self.startVpn(manager)
+                }
+            } else {
+                manager.isEnabled = true
+                self.startVpn(manager)
+            }
+        }
+    }
+
+    private func startVpn(_ manager: NEVPNManager) {
+        do {
+            try manager.connection.startVPNTunnel()
+            lastError = "正在建立全局代理…"
+        } catch {
+            lastError = "启动 VPN 失败: \(error.localizedDescription)"
+        }
+        vpnBusy = false
+    }
+}
 
     private func loadProxyGroupsInBackground() {
         DispatchQueue.global().async {
