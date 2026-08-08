@@ -142,9 +142,9 @@ func stopMihomo() {
     let pid = readPid()
     if pid > 0 {
         kill(pid, SIGTERM)
-        for _ in 0..<20 {
+        for _ in 0..<40 {
             if !processAlive(pid) { break }
-            usleep(100_000)
+            usleep(25_000)
         }
         if processAlive(pid) {
             kill(pid, SIGKILL)
@@ -246,6 +246,9 @@ func loadTunnelManager(completion: @escaping (NETunnelProviderManager?) -> Void)
             $0.protocolConfiguration is NETunnelProviderProtocol &&
             $0.localizedDescription == "mihomo 全局代理"
         }
+        let done: (NETunnelProviderManager?) -> Void = { m in
+            DispatchQueue.main.async { completion(m) }
+        }
         if match == nil {
             let m = NETunnelProviderManager()
             let proto = NETunnelProviderProtocol()
@@ -258,11 +261,11 @@ func loadTunnelManager(completion: @escaping (NETunnelProviderManager?) -> Void)
             m.saveToPreferences { _ in
                 match = m
                 tunnelManager = m
-                completion(m)
+                done(m)
             }
         } else {
             tunnelManager = match
-            completion(match)
+            done(match)
         }
     }
 }
@@ -470,40 +473,50 @@ struct ContentView: View {
     private func toggleMasterOn() {
         busy = true
         lastError = ""
-        if status != "running" {
-            let pid = startMihomo(configPath: currentConfigPath())
-            if pid <= 0 {
-                lastError = lastSpawnError.isEmpty ? "启动失败" : lastSpawnError
-                busy = false
-                refreshStatus()
-                return
-            }
-            lastError = "mihomo 已启动 (pid \(pid))"
-        }
-        loadTunnelManager { manager in
-            guard let manager = manager else {
-                self.lastError = "创建 VPN 配置失败"
-                self.busy = false
-                self.refreshStatus()
-                return
-            }
-            manager.isEnabled = true
-            manager.saveToPreferences { error in
-                if let error = error {
-                    self.lastError = "保存 VPN 配置失败: \(error.localizedDescription)"
+        let needStart = status != "running"
+        let startVPN: () -> Void = {
+            self.loadTunnelManager { manager in
+                guard let manager = manager else {
+                    self.lastError = "创建 VPN 配置失败"
                     self.busy = false
                     self.refreshStatus()
                     return
                 }
-                do {
-                    try manager.connection.startVPNTunnel()
-                    self.lastError = "已开启"
-                } catch {
-                    self.lastError = "启动 VPN 失败: \(error.localizedDescription)"
+                manager.isEnabled = true
+                manager.saveToPreferences { error in
+                    if let error = error {
+                        self.lastError = "保存 VPN 配置失败: \(error.localizedDescription)"
+                        self.busy = false
+                        self.refreshStatus()
+                        return
+                    }
+                    do {
+                        try manager.connection.startVPNTunnel()
+                        self.lastError = "已开启"
+                    } catch {
+                        self.lastError = "启动 VPN 失败: \(error.localizedDescription)"
+                    }
+                    self.busy = false
+                    self.refreshStatus()
                 }
-                self.busy = false
-                self.refreshStatus()
             }
+        }
+        if needStart {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let pid = self.startMihomo(configPath: self.currentConfigPath())
+                DispatchQueue.main.async {
+                    if pid <= 0 {
+                        self.lastError = self.lastSpawnError.isEmpty ? "启动失败" : self.lastSpawnError
+                        self.busy = false
+                        self.refreshStatus()
+                        return
+                    }
+                    self.lastError = "mihomo 已启动 (pid \(pid))"
+                    startVPN()
+                }
+            }
+        } else {
+            startVPN()
         }
     }
 
@@ -512,22 +525,30 @@ struct ContentView: View {
         lastError = ""
         tunnelManager?.connection.stopVPNTunnel()
         NEVPNManager.shared().connection.stopVPNTunnel()
-        stopMihomo()
-        busy = false
-        refreshStatus()
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.stopMihomo()
+            DispatchQueue.main.async {
+                self.busy = false
+                self.refreshStatus()
+            }
+        }
     }
 
     private func restart() {
         busy = true
         lastError = ""
-        let pid = startMihomo(configPath: currentConfigPath())
-        if pid > 0 {
-            lastError = "mihomo 已用新配置重启 (pid \(pid))"
-        } else {
-            lastError = lastSpawnError.isEmpty ? "重启失败" : lastSpawnError
+        DispatchQueue.global(qos: .userInitiated).async {
+            let pid = self.startMihomo(configPath: self.currentConfigPath())
+            DispatchQueue.main.async {
+                if pid > 0 {
+                    self.lastError = "mihomo 已用新配置重启 (pid \(pid))"
+                } else {
+                    self.lastError = self.lastSpawnError.isEmpty ? "重启失败" : self.lastSpawnError
+                }
+                self.refreshStatus()
+                self.busy = false
+            }
         }
-        refreshStatus()
-        busy = false
     }
 
     private func refreshStatus() {
