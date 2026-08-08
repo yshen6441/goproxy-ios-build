@@ -517,19 +517,36 @@ struct ContentView: View {
     }
 
     private func refreshStatus() {
-        status = processAlive(readPid()) ? "running" : "stopped"
-        if status == "running" && !wasRunning {
-            proxyGroups = fetchProxyGroups(configDir: CONFIG_DIR)
+        let running = processAlive(readPid())
+        status = running ? "running" : "stopped"
+        if running && !wasRunning {
+            loadProxyGroupsInBackground()
         }
-        if status != "running" {
+        if !running {
             proxyGroups = []
         }
-        wasRunning = status == "running"
+        wasRunning = running
+    }
+
+    private func loadProxyGroupsInBackground() {
+        DispatchQueue.global().async {
+            var groups: [ProxyGroupInfo] = []
+            for _ in 0..<5 {
+                groups = fetchProxyGroups(configDir: CONFIG_DIR)
+                if !groups.isEmpty { break }
+                usleep(1_000_000)
+            }
+            DispatchQueue.main.async {
+                if self.processAlive(readPid()) {
+                    self.proxyGroups = groups
+                }
+            }
+        }
     }
 
     private func switchNode(group: String, node: String) {
         if selectProxyNode(configDir: CONFIG_DIR, group: group, node: node) {
-            proxyGroups = fetchProxyGroups(configDir: CONFIG_DIR)
+            loadProxyGroupsInBackground()
             lastError = "已切换 \(group) -> \(node)"
         } else {
             lastError = "节点切换失败（API 未响应）"
