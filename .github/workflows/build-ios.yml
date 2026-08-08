@@ -329,6 +329,15 @@ jobs:
           chmod 755 pkg/DEBIAN
           dpkg-deb -Zgzip -b pkg mihomo-toggle_1.6_iphoneos-arm64e.deb
 
+      - name: Package ipa (iphoneos-arm64e)
+        working-directory: buildrepo/mihomo-toggle
+        run: |
+          rm -rf Payload
+          mkdir -p Payload
+          cp -r MihomoToggle.app Payload/
+          zip -qry MihomoToggle_1.6_iphoneos-arm64e.ipa Payload
+          ls -la MihomoToggle_1.6_iphoneos-arm64e.ipa
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -336,3 +345,4 @@ jobs:
           path: |
             buildrepo/mihomo-toggle/MihomoToggle.app/
             buildrepo/mihomo-toggle/mihomo-toggle_*.deb
+            buildrepo/mihomo-toggle/MihomoToggle_*.ipa
